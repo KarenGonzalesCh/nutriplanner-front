@@ -1,112 +1,16 @@
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { RefreshCw, Sparkles, Shuffle } from "lucide-react";
 import { useState } from "react";
-import { RefreshCw, Sparkles } from "lucide-react";
 import { AppLayout } from "@/components/np/AppLayout";
 import { Button, Card, Chip, PageHeader, comidaTexto } from "@/components/np/ui";
 import { recetas } from "@/data/mock";
 import { useApp } from "@/lib/app-state";
 import { recetaApta } from "@/lib/restricciones";
 import type { Menu, TipoComida } from "@/types";
-
-export const Route = createFileRoute("/generador")({
-  head: () => ({
-    meta: [
-      { title: "Generar menú — NutriPlanner" },
-      { name: "description", content: "Creá un menú semanal personalizado que respeta tus restricciones." },
-      { property: "og:title", content: "Generar menú — NutriPlanner" },
-      { property: "og:description", content: "Creá un menú semanal personalizado que respeta tus restricciones." },
-    ],
-  }),
-  component: Generador,
-});
-
-const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
-const TIPOS = Object.keys(comidaTexto) as TipoComida[];
-
-function Generador() {
-  const { perfil, guardarMenu } = useApp();
-  const navigate = useNavigate();
-  const [cantDias, setCantDias] = useState(3);
-  const [comidas, setComidas] = useState<TipoComida[]>(["DESAYUNO", "ALMUERZO", "CENA"]);
-  const [menu, setMenu] = useState<Menu["dias"] | null>(null);
-  const [nombre, setNombre] = useState("Mi menú semanal");
-
-  const generar = () => {
-    const aptas = recetas.filter((r) => recetaApta(r, perfil));
-    const dias = DIAS.slice(0, cantDias).map((dia) => {
-      const c: Menu["dias"][number]["comidas"] = {};
-      for (const t of comidas) {
-        const opciones = aptas.filter((r) => r.tipos_comida.includes(t));
-        const elegida = opciones[Math.floor(Math.random() * opciones.length)];
-        if (elegida) c[t] = elegida.id;
-      }
-      return { dia, comidas: c };
-    });
-    setMenu(dias);
-  };
-
-  return (
-    <AppLayout>
-      <PageHeader title="Generar menú" subtitle="Elegí días y comidas; usamos solo recetas aptas para tu perfil." />
-      <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
-        <Card className="h-fit space-y-6">
-          <div>
-            <div className="mb-2 text-sm font-semibold">Cantidad de días: {cantDias}</div>
-            <input type="range" min={1} max={7} value={cantDias} onChange={(e) => setCantDias(+e.target.value)} className="w-full accent-primary" />
-          </div>
-          <div>
-            <div className="mb-2 text-sm font-semibold">Comidas a incluir</div>
-            <div className="flex flex-wrap gap-2">
-              {TIPOS.map((t) => (
-                <Chip key={t} active={comidas.includes(t)} onClick={() => setComidas(comidas.includes(t) ? comidas.filter((x) => x !== t) : [...comidas, t])}>
-                  {comidaTexto[t]}
-                </Chip>
-              ))}
-            </div>
-          </div>
-          <Button className="w-full" onClick={generar} disabled={!comidas.length}>
-            {menu ? <RefreshCw className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-            {menu ? "Volver a generar" : "Generar menú"}
-          </Button>
-        </Card>
-
-        <div>
-          {!menu ? (
-            <div className="grid h-full min-h-64 place-items-center rounded-2xl border border-dashed text-center text-muted-foreground">
-              Configurá las opciones y generá tu menú.
-            </div>
-          ) : (
-            <>
-              <div className="space-y-4">
-                {menu.map((d) => (
-                  <Card key={d.dia} className="p-4">
-                    <div className="mb-3 font-display text-lg font-semibold">{d.dia}</div>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      {comidas.map((t) => {
-                        const r = recetas.find((x) => x.id === d.comidas[t]);
-                        return (
-                          <div key={t} className="rounded-xl bg-secondary p-3">
-                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{comidaTexto[t]}</div>
-                            {r ? (
-                              <Link to="/recetas/$id" params={{ id: String(r.id) }} className="mt-1 block text-sm font-medium hover:text-primary">{r.nombre}</Link>
-                            ) : (
-                              <div className="mt-1 text-sm text-muted-foreground">Sin recetas aptas</div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </Card>
-                ))}
-              </div>
-              <Card className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <input value={nombre} onChange={(e) => setNombre(e.target.value)} className="flex-1 rounded-full border border-input bg-background px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring" />
-                <Button onClick={() => { guardarMenu({ nombre, dias: menu }); navigate({ to: "/menus" }); }}>Guardar menú</Button>
-              </Card>
-            </>
-          )}
-        </div>
-      </div>
-    </AppLayout>
-  );
-}
+export const Route = createFileRoute("/generador")({ component: Generador });
+const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]; const TIPOS = Object.keys(comidaTexto) as TipoComida[];
+function Generador() { const { perfil, excluidas, guardarMenu } = useApp(); const navigate = useNavigate(); const [cantDias,setCantDias]=useState(3); const [comidas,setComidas]=useState<TipoComida[]>(["DESAYUNO","ALMUERZO","CENA"]); const [menu,setMenu]=useState<Menu["dias"]|null>(null); const [nombre,setNombre]=useState("Mi menú semanal"); const [aviso,setAviso]=useState("");
+  const opciones = (tipo: TipoComida) => recetas.filter(r => r.tipos_comida.includes(tipo) && recetaApta(r, perfil) && !excluidas.includes(r.id));
+  const generar = () => { const usados = new Set<number>(); let faltantes = false; const dias = DIAS.slice(0,cantDias).map(dia => { const c: Menu["dias"][number]["comidas"] = {}; comidas.forEach(t => { const disponibles = opciones(t); const sinRepetir = disponibles.filter(r => !usados.has(r.id)); const elegida = (sinRepetir.length ? sinRepetir : disponibles)[Math.floor(Math.random() * (sinRepetir.length ? sinRepetir : disponibles).length)]; if (elegida) { c[t]=elegida.id; usados.add(elegida.id); } else faltantes=true; }); return {dia, comidas:c}; }); setAviso(faltantes ? "No hay suficientes recetas compatibles para completar todas las comidas." : ""); setMenu(dias); };
+  const reemplazar = (dia: string, tipo: TipoComida) => { if (!menu) return; const disponibles=opciones(tipo); const usados=menu.flatMap(d=>Object.values(d.comidas)); const nueva=disponibles.find(r=>!usados.includes(r.id)) ?? disponibles[0]; if (!nueva) { setAviso(`No hay recetas compatibles para reemplazar el ${comidaTexto[tipo].toLowerCase()}.`); return; } setMenu(menu.map(d=>d.dia===dia ? {...d, comidas:{...d.comidas,[tipo]:nueva.id}} : d)); };
+  return <AppLayout><PageHeader title="Generar menú" subtitle="Elegí entre 1 y 7 días y las comidas que querés incluir." /><div className="grid gap-8 lg:grid-cols-[320px_1fr]"><Card className="h-fit space-y-6"><div><div className="mb-2 text-sm font-semibold">Cantidad de días: {cantDias}</div><input type="range" min={1} max={7} value={cantDias} onChange={e=>setCantDias(+e.target.value)} className="w-full accent-primary" /></div><div><div className="mb-2 text-sm font-semibold">Comidas a incluir</div><div className="flex flex-wrap gap-2">{TIPOS.map(t=><Chip key={t} active={comidas.includes(t)} onClick={()=>setComidas(comidas.includes(t)?comidas.filter(x=>x!==t):[...comidas,t])}>{comidaTexto[t]}</Chip>)}</div></div><Button className="w-full" onClick={generar} disabled={!comidas.length}>{menu?<RefreshCw className="h-4 w-4"/>:<Sparkles className="h-4 w-4"/>}{menu?"Volver a generar":"Generar menú"}</Button></Card><div>{aviso&&<div className="mb-4 rounded-xl bg-warning-soft px-4 py-3 text-sm text-warning">{aviso}</div>}{!menu?<div className="grid min-h-64 place-items-center rounded-2xl border border-dashed text-center text-muted-foreground">Configurá las opciones y generá tu menú.</div>:<><div className="space-y-4">{menu.map(d=><Card key={d.dia} className="p-4"><div className="mb-3 font-display text-lg font-semibold">{d.dia}</div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{comidas.map(t=>{const r=recetas.find(x=>x.id===d.comidas[t]);return <div key={t} className="rounded-xl bg-secondary p-3"><div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{comidaTexto[t]}</div>{r?<><Link to="/recetas/$id" params={{id:String(r.id)}} className="mt-1 block text-sm font-medium hover:text-primary">{r.nombre}</Link><button type="button" onClick={()=>reemplazar(d.dia,t)} className="mt-2 inline-flex items-center gap-1 text-xs text-primary"><Shuffle className="h-3 w-3"/> Reemplazar</button></>:<div className="mt-1 text-sm text-muted-foreground">Sin recetas aptas</div>}</div>})}</div></Card>)}</div><Card className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center"><input value={nombre} onChange={e=>setNombre(e.target.value)} className="flex-1 rounded-full border border-input bg-background px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring"/><Button onClick={()=>{guardarMenu({nombre:nombre.trim()||"Menú sin nombre",dias:menu});navigate({to:"/menus"})}}>Guardar menú</Button></Card></>}</div></div></AppLayout> }
