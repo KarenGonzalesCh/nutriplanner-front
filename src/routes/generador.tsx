@@ -37,7 +37,8 @@ function Generador() {
       const c: Menu["dias"][number]["comidas"] = {};
       for (const t of comidas) {
         const opciones = aptas.filter((r) => r.tipos_comida.includes(t));
-        if (opciones.length) c[t] = opciones[Math.floor(Math.random() * opciones.length)].id;
+        const elegida = opciones[Math.floor(Math.random() * opciones.length)];
+        if (elegida) c[t] = elegida.id;
       }
       return { dia, comidas: c };
     });

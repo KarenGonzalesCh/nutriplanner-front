@@ -5,7 +5,7 @@
 import * as mock from "@/data/mock";
 import type { Cuenta, PerfilAlimentario, Receta } from "@/types";
 
-export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+export const API_URL = import.meta.env["VITE_API_URL"] ?? "http://localhost:8000";
 export const USE_MOCK = true;
 
 let token: string | null = null;
@@ -31,7 +31,7 @@ export const api = {
     USE_MOCK
       ? delay<{ token: string; cuenta: Cuenta }>({
           token: "mock-token",
-          cuenta: { id: 1, nombre_usuario: correo.split("@")[0], correo, rol: "USUARIO" },
+          cuenta: { id: 1, nombre_usuario: correo.split("@")[0] ?? correo, correo, rol: "USUARIO" },
         })
       : request<{ token: string; cuenta: Cuenta }>("/auth/login", {
           method: "POST",
