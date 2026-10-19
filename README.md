@@ -10,7 +10,6 @@ Tener instalados:
 
 - [Git](https://git-scm.com/downloads)
 - [Node.js (LTS)](https://nodejs.org/) — incluye npm.
-- [Visual Studio Code](https://code.visualstudio.com/)
 
 ## 2. Clonar el repositorio
 
