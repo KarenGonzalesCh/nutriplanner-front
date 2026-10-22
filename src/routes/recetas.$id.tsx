@@ -1,5 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowLeft, Clock, Repeat } from "lucide-react";
+import { ArrowLeft, Clock, Repeat, Heart, Ban } from "lucide-react";
 import { AppLayout } from "@/components/np/AppLayout";
 import { Badge, Card, comidaTexto, nivelTexto } from "@/components/np/ui";
 import { recetas } from "@/data/mock";
@@ -25,7 +25,7 @@ export const Route = createFileRoute("/recetas/$id")({
 
 function Detalle() {
   const { id } = Route.useParams();
-  const { perfil } = useApp();
+  const { perfil, favoritas, excluidas, alternarFavorita, alternarExcluida  } = useApp();
   const r = recetas.find((x) => String(x.id) === id);
 
   return (
@@ -41,11 +41,58 @@ function Detalle() {
           <div>
             <div className="flex flex-wrap gap-1.5">{r.tipos_comida.map((t) => <Badge key={t}>{comidaTexto[t]}</Badge>)}</div>
             <h1 className="mt-3 text-4xl font-semibold">{r.nombre}</h1>
+
+
             <div className="mt-3 flex items-center gap-3 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{r.tiempo_preparacion} min</span>
-              <span>·</span><span>{nivelTexto[r.dificultad]}</span>
+              <span className="flex items-center gap-1">
+                <Clock className="h-4 w-4" />
+                {r.tiempo_preparacion} min
+              </span>
+              <span>·</span>
+              <span>{nivelTexto[r.dificultad]}</span>
             </div>
-            {r.info_nutricional && <p className="mt-4 rounded-xl bg-primary-soft px-4 py-3 text-sm font-medium text-primary">{r.info_nutricional}</p>}
+
+            {/* FAVORITOS Y EXCLUSIÓN */}
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => alternarFavorita(r.id)}
+                className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm hover:bg-primary-soft"
+              >
+                <Heart
+                  className={`h-4 w-4 ${
+                    favoritas.includes(r.id) ? "fill-current text-primary" : ""
+                  }`}
+                />
+                {favoritas.includes(r.id)
+                  ? "Quitar de favoritos"
+                  : "Agregar a favoritos"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => alternarExcluida(r.id)}
+                className="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm hover:bg-secondary"
+              >
+                <Ban
+                  className={`h-4 w-4 ${
+                    excluidas.includes(r.id) ? "text-destructive" : ""
+                  }`}
+                />
+                {excluidas.includes(r.id)
+                  ? "Quitar exclusión"
+                  : "Excluir receta"}
+              </button>
+            </div>
+
+            {/* INFORMACIÓN NUTRICIONAL */}
+            {r.info_nutricional && (
+              <p className="mt-4 rounded-xl bg-primary-soft px-4 py-3 text-sm font-medium text-primary">
+                {r.info_nutricional}
+              </p>
+            )}
+
+
             {!recetaApta(r, perfil) && (
               <p className="mt-3 rounded-xl bg-warning-soft px-4 py-3 text-sm font-medium text-warning">
                 Esta receta no es apta para tu perfil (por ingredientes o nivel culinario).
