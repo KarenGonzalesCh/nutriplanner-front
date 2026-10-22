@@ -1,10 +1,10 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowLeft, Clock, Repeat, Heart, Ban } from "lucide-react";
+import { ArrowLeft, Clock, Heart, Ban } from "lucide-react";
 import { AppLayout } from "@/components/np/AppLayout";
 import { Badge, Card, comidaTexto, nivelTexto } from "@/components/np/ui";
 import { recetas } from "@/data/mock";
 import { useApp } from "@/lib/app-state";
-import { nombreIngrediente, recetaApta, resolverIngrediente } from "@/lib/restricciones";
+import { nombreIngrediente, recetaApta, ingredienteProhibido } from "@/lib/restricciones";
 
 export const Route = createFileRoute("/recetas/$id")({
   head: ({ params }) => {
@@ -103,23 +103,44 @@ function Detalle() {
               <h2 className="mb-3 text-xl font-semibold">Ingredientes</h2>
               <ul className="divide-y">
                 {r.ingredientes.map((ri) => {
-                  const res = resolverIngrediente(ri, perfil);
+                  const restringido = ingredienteProhibido(
+                    ri.ingrediente_id,
+                    perfil
+                  );
+
+                  const tieneAlternativa = restringido && ri.sustituto_id != null && !ingredienteProhibido(ri.sustituto_id, perfil);
                   return (
-                    <li key={ri.ingrediente_id} className="flex items-center justify-between py-2.5 text-sm">
-                      <span>
-                        {res?.sustituido ? (
-                          <>
-                            <span className="text-muted-foreground line-through">{nombreIngrediente(ri.ingrediente_id)}</span>{" "}
-                            <span className="inline-flex items-center gap-1 font-medium text-primary"><Repeat className="h-3.5 w-3.5" />{nombreIngrediente(res.id)}</span>
-                          </>
-                        ) : (
-                          <span className={res ? "" : "text-destructive"}>{nombreIngrediente(ri.ingrediente_id)}</span>
-                        )}
-                      </span>
-                      <span className="text-muted-foreground">{ri.cantidad}</span>
+                    <li
+                     key={ri.ingrediente_id}
+                     className="py-3 text-sm"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span
+                         className={
+                         
+                          restringido ? "text-destructive" : ""
+                         }
+                        >
+                          {nombreIngrediente(ri.ingrediente_id)}
+
+                         </span>
+                         <span className="text-muted-foreground">
+                           {ri.cantidad}
+                         </span>
+
+                      </div>
+                      {restringido && (
+                        <p className="mt-1 text-xs text-warning">
+                          {tieneAlternativa
+                           ? "Ingrediente restringido. Tiene una alternativa disponible."
+                           : "Ingrediente restringido. No tiene una alternativa compatible."}
+
+                        </p>
+                      )}
                     </li>
                   );
                 })}
+                  
               </ul>
             </Card>
           </div>
