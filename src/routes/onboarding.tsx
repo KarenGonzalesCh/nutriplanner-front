@@ -3,7 +3,7 @@ import { AppLayout } from "@/components/np/AppLayout";
 import { PerfilForm } from "@/components/np/PerfilForm";
 import { PageHeader } from "@/components/np/ui";
 import { useApp } from "@/lib/app-state";
-import { api } from "@/services/api";
+
 
 export const Route = createFileRoute("/onboarding")({
   head: () => ({
@@ -28,7 +28,7 @@ function Onboarding() {
           inicial={perfil}
           textoBoton="Guardar y continuar"
           onGuardar={async (p) => {
-            setPerfil(await api.guardarPerfil(p));
+            await setPerfil(p);
             navigate({ to: "/recetas" });
           }}
         />

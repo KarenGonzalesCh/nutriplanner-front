@@ -39,7 +39,7 @@ function Perfil() {
           inicial={perfil}
           textoBoton="Guardar cambios"
           onGuardar={async (p) => {
-            setPerfil(await api.guardarPerfil(p));
+            await setPerfil(p);
             setOk(true);
           }}
         />

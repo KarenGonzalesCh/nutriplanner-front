@@ -1,7 +1,7 @@
 // Formulario de perfil alimentario, usado en el onboarding y en "Perfil".
-import { useState } from "react";
-import { alergias, categorias, ingredientes } from "@/data/mock";
-import type { NivelDificultad, PerfilAlimentario } from "@/types";
+import { useEffect, useState } from "react";
+import { api } from "@/services/api";
+import type { Alergia, CategoriaAlimento, Ingrediente, NivelDificultad, PerfilAlimentario } from "@/types";
 import { Button, Card, Chip, nivelTexto } from "./ui";
 
 const toggle = (list: number[], id: number) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
@@ -17,11 +17,72 @@ export function PerfilForm({
 }) {
   const [p, setP] = useState(inicial);
   const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+  const [alergias, setAlergias] = useState<Alergia[]>([]);
+  const [categorias, setCategorias] = useState<CategoriaAlimento[]>([]);
+  const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
+  const [cargandoCatalogos, setCargandoCatalogos] = useState(true);
+
+  useEffect(() => {
+    setP(inicial);
+  }, [inicial]);
+
+    useEffect(() => {
+    let activo = true;
+
+    const cargarCatalogos = async () => {
+      setCargandoCatalogos(true);
+
+      try {
+        const [datosAlergias, datosCategorias, datosIngredientes] =
+          await Promise.all([
+            api.getAlergias(),
+            api.getCategorias(),
+            api.getIngredientes(),
+          ]);
+
+        if (activo) {
+          setAlergias(datosAlergias);
+          setCategorias(datosCategorias);
+          setIngredientes(datosIngredientes);
+        }
+      } catch (err) {
+        if (activo) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "No se pudieron cargar los catálogos."
+          );
+        }
+      } finally {
+        if (activo) setCargandoCatalogos(false);
+      }
+    };
+
+    void cargarCatalogos();
+
+    return () => {
+      activo = false;
+    };
+  }, []);
 
   const submit = async () => {
+    if (guardando || cargandoCatalogos) return;
+
     setGuardando(true);
-    await onGuardar(p);
-    setGuardando(false);
+    setError("");
+
+    try {
+      await onGuardar(p);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo guardar el perfil. Intentá nuevamente."
+      );
+    } finally {
+      setGuardando(false);
+    }
   };
 
   return (
@@ -81,8 +142,18 @@ export function PerfilForm({
         </div>
       </Card>
 
-      <div className="flex justify-end">
-        <Button onClick={submit} disabled={guardando}>{guardando ? "Guardando…" : textoBoton}</Button>
+      <div className="space-y-3">
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end">
+          <Button onClick={submit} disabled={guardando || cargandoCatalogos || Boolean(error)}>
+            {cargandoCatalogos ? "Cargando opciones..." : guardando ? "Guardando..." : textoBoton}
+            
+          </Button>
+        </div>
       </div>
     </div>
   );
