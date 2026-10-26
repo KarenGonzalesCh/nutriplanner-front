@@ -1,14 +1,26 @@
-import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { RefreshCw, Sparkles, Shuffle, AlertTriangle, CheckCircle } from "lucide-react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import {
+  CalendarDays,
+  Clock,
+  Eye,
+  RefreshCw,
+  Save,
+  Sparkles,
+  Shuffle,
+  AlertTriangle,
+  CheckCircle,
+} from "lucide-react";
 import { useState } from "react";
 import { AppLayout } from "@/components/np/AppLayout";
-import { Button, Card, Chip, PageHeader, comidaTexto } from "@/components/np/ui";
+import { RecetaPreviewModal } from "@/components/np/RecetaPreviewModal";
+import { Button, Card, Chip, PageHeader, comidaTexto, nivelTexto, } from "@/components/np/ui";
 import { recetas } from "@/data/mock";
 import { useApp } from "@/lib/app-state";
 import { recetaApta, ingredienteProhibido, nombreIngrediente } from "@/lib/restricciones";
-import type { Menu, TipoComida } from "@/types";
+import { cn } from "@/lib/utils";
+import type { Menu, Receta, TipoComida } from "@/types";
 export const Route = createFileRoute("/generador")({ component: Generador });
-const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]; const TIPOS = Object.keys(comidaTexto) as TipoComida[];
+const DIAS = ["Lunes", "Martes", "MiÃ©rcoles", "Jueves", "Viernes", "SÃ¡bado", "Domingo"]; const TIPOS = Object.keys(comidaTexto) as TipoComida[];
 function Generador() {
   const { perfil, excluidas, guardarMenu } = useApp();
   const navigate = useNavigate();
@@ -19,8 +31,13 @@ function Generador() {
   ]);
 
   const [menu, setMenu] = useState<Menu["dias"] | null>(null);
-  const [nombre, setNombre] = useState("Mi menú semanal");
+  const [nombre, setNombre] = useState("Mi menÃº semanal");
   const [aviso, setAviso] = useState("");
+  const [previewReceta, setPreviewReceta] = useState<{
+    receta: Receta;
+    dia: string;
+    tipo: TipoComida;
+  } | null>(null);
 
   // RECETAS DISPONIBLES
   const opciones = (tipo: TipoComida) =>
@@ -31,7 +48,7 @@ function Generador() {
         !excluidas.includes(r.id)
     );
 
-  // INGREDIENTES QUE NECESITAN SUSTITUCIÓN
+  // INGREDIENTES QUE NECESITAN SUSTITUCIÃ“N
   const ingredientesPendientes = (
     dia: Menu["dias"][number],
     tipo: TipoComida
@@ -56,7 +73,7 @@ function Generador() {
     });
   };
 
-  // GENERAR MENÚ
+  // GENERAR MENÃš
   const generar = () => {
     const usados = new Set<number>();
     let faltantes = false;
@@ -143,7 +160,7 @@ function Generador() {
     setAviso("");
   };
 
-  // CONFIRMAR SUSTITUCIÓN EXPLÍCITA
+  // CONFIRMAR SUSTITUCIÃ“N EXPLÃCITA
   const confirmarSustitucion = (
     dia: string,
     tipo: TipoComida,
@@ -216,12 +233,12 @@ function Generador() {
       )
     : false;
 
-  // GUARDAR SOLAMENTE SI ESTÁ COMPLETO
+  // GUARDAR SOLAMENTE SI ESTÃ COMPLETO
   const guardar = () => {
     if (!menu || pendientes > 0 || faltanRecetas) return;
 
     guardarMenu({
-      nombre: nombre.trim() || "Menú sin nombre",
+      nombre: nombre.trim() || "MenÃº sin nombre",
       dias: menu,
     });
 
@@ -231,72 +248,99 @@ function Generador() {
   return (
     <AppLayout>
       <PageHeader
-        title="Generar menú"
-        subtitle="Elegí entre 1 y 7 días y las comidas que querés incluir."
+        title="Generar menÃº"
+        subtitle="ElegÃ­ entre 1 y 7 dÃ­as y las comidas que querÃ©s incluir."
       />
 
-      <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
+      <div className="space-y-8">
 
-        {/* CONFIGURACIÓN */}
-        <Card className="h-fit space-y-6">
-          <div>
-            <div className="mb-2 text-sm font-semibold">
-              Cantidad de días: {cantDias}
+        {/* CONFIGURACIÃ“N */}
+        <Card className="p-5 shadow-card">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+
+            {/* Selector de cantidad de dÃ­as */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  DÃ­as a planificar
+                </span>
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">
+                  {cantDias} {cantDias === 1 ? "dÃ­a" : "dÃ­as"}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => {
+                      setCantDias(n);
+                      setMenu(null);
+                      setPreviewReceta(null);
+                    }}
+                    className={cn(
+                      "h-9 w-9 rounded-xl text-sm font-semibold transition-all",
+                      cantDias === n
+                        ? "bg-primary text-primary-foreground shadow-sm scale-105"
+                        : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                    )}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <input
-              type="range"
-              min={1}
-              max={7}
-              value={cantDias}
-              onChange={(e) => {
-                setCantDias(+e.target.value);
-                setMenu(null);
-              }}
-              className="w-full accent-primary"
-            />
+            {/* Selector de comidas */}
+            <div className="space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Comidas a incluir
+              </span>
+
+              <div className="flex flex-wrap gap-2">
+                {TIPOS.map((tipo) => (
+                  <Chip
+                    key={tipo}
+                    active={comidas.includes(tipo)}
+                    onClick={() => {
+                      setComidas(
+                        comidas.includes(tipo)
+                          ? comidas.filter((x) => x !== tipo)
+                          : [...comidas, tipo]
+                      );
+                      setMenu(null);
+                      setPreviewReceta(null);
+                    }}
+                  >
+                    {comidaTexto[tipo]}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+
+            {/* BotÃ³n para generar */}
+            <div className="flex items-center pt-2 lg:pt-0">
+              <Button
+                onClick={generar}
+                disabled={!comidas.length}
+                className="w-full shadow-sm lg:w-auto"
+              >
+                {menu ? (
+                  <RefreshCw className="h-4 w-4" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                {menu ? "Volver a generar" : "Generar menÃº"}
+              </Button>
+            </div>
+
           </div>
-
-          <div>
-            <div className="mb-2 text-sm font-semibold">
-              Comidas a incluir
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {TIPOS.map((tipo) => (
-                <Chip
-                  key={tipo}
-                  active={comidas.includes(tipo)}
-                  onClick={() => {
-                    setComidas(
-                      comidas.includes(tipo)
-                        ? comidas.filter((x) => x !== tipo)
-                        : [...comidas, tipo]
-                    );
-                    setMenu(null);
-                  }}
-                >
-                  {comidaTexto[tipo]}
-                </Chip>
-              ))}
-            </div>
-          </div>
-
-          <Button
-            className="w-full"
-            onClick={generar}
-            disabled={!comidas.length}
-          >
-            {menu ? (
-              <RefreshCw className="h-4 w-4" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
-            {menu ? "Volver a generar" : "Generar menú"}
-          </Button>
         </Card>
 
-        {/* MENÚ GENERADO */}
+
+
+        {/* MENÃš GENERADO */}
         <div>
           {aviso && (
             <div className="mb-4 rounded-xl bg-warning-soft px-4 py-3 text-sm text-warning">
@@ -306,15 +350,38 @@ function Generador() {
 
           {!menu ? (
             <div className="grid min-h-64 place-items-center rounded-2xl border border-dashed text-center text-muted-foreground">
-              Configurá las opciones y generá tu menú.
+              ConfigurÃ¡ las opciones y generÃ¡ tu menÃº.
             </div>
           ) : (
             <>
               <div className="space-y-4">
-                {menu.map((dia) => (
-                  <Card key={dia.dia} className="p-4">
-                    <div className="mb-3 font-display text-lg font-semibold">
-                      {dia.dia}
+                {menu.map((dia, index) => (
+                  <Card key={dia.dia} className="space-y-4 p-5">
+                    <div className="flex items-center justify-between border-b border-border pb-3">
+                      <div className="flex items-center gap-3">
+                        {menu.length > 1 ? (
+                          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+                            {index + 1}
+                          </span>
+                        ) : (
+                          <CalendarDays className="h-6 w-6 text-primary" />
+                        )}
+
+                        <div>
+                          <h2 className="font-display text-2xl font-bold tracking-tight">
+                            {dia.dia}
+                          </h2>
+
+                          <p className="text-xs text-muted-foreground">
+                            DÃ­a {index + 1} de {menu.length}
+                          </p>
+                        </div>
+                      </div>
+
+                      <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">
+                        {comidas.length}{" "}
+                        {comidas.length === 1 ? "comida" : "comidas"}
+                      </span>
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -329,27 +396,84 @@ function Generador() {
                         return (
                           <div
                             key={tipo}
-                            className="rounded-xl bg-secondary p-3"
+                            className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-card transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lift"
                           >
-                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              {comidaTexto[tipo]}
+                            <div className="flex items-center justify-between border-b border-border/50 bg-secondary/50 px-4 py-2.5">
+                              <span className="text-xs font-bold uppercase tracking-wider text-foreground">
+                                {comidaTexto[tipo]}
+                              </span>
+
+                              {receta && (
+                                <span className="text-xs text-muted-foreground">
+                                  {nivelTexto[receta.dificultad]}
+                                </span>
+                              )}
                             </div>
 
                             {receta ? (
                               <>
-                                <Link
-                                  to="/recetas/$id"
-                                  params={{ id: String(receta.id) }}
-                                  className="mt-1 block text-sm font-medium hover:text-primary"
+                                                              <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPreviewReceta({
+                                      receta,
+                                      dia: dia.dia,
+                                      tipo,
+                                    })
+                                  }
+                                  className="group/thumb relative aspect-[16/10] w-full overflow-hidden bg-muted text-left"
+                                  title={`Ver detalles de ${receta.nombre}`}
                                 >
-                                  {receta.nombre}
-                                </Link>
+                                  <img
+                                    src={receta.imagen}
+                                    alt={receta.nombre}
+                                    loading="lazy"
+                                    className="h-full w-full object-cover transition-transform duration-500 group-hover/thumb:scale-105"
+                                  />
+
+                                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity duration-300 group-hover/thumb:opacity-100">
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-background/95 px-3 py-1.5 text-xs font-semibold text-foreground">
+                                      <Eye className="h-3.5 w-3.5 text-primary" />
+                                      Ver receta
+                                    </span>
+                                  </div>
+                                </button>
+                                <div className="space-y-2 px-4 pt-4">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setPreviewReceta({
+                                        receta,
+                                        dia: dia.dia,
+                                        tipo,
+                                      })
+                                    }
+                                    className="line-clamp-2 block text-left font-display text-base font-semibold leading-snug text-foreground transition-colors hover:text-primary"
+                                  >
+                                    {receta.nombre}
+                                  </button>
+
+                                  <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                                    <span className="inline-flex items-center gap-1">
+                                      <Clock className="h-3.5 w-3.5 text-primary" />
+                                      {receta.tiempo_preparacion} min
+                                    </span>
+
+                                    {receta.info_nutricional && (
+                                      <span className="truncate">
+                                        {receta.info_nutricional.split("Â·")[0]}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+
 
                                 {pendientesComida.length > 0 ? (
                                   <div className="mt-3 space-y-3">
                                     <div className="flex items-center gap-1 text-xs text-warning">
                                       <AlertTriangle className="h-4 w-4" />
-                                      Sustitución pendiente
+                                      SustituciÃ³n pendiente
                                     </div>
 
                                     {pendientesComida.map((ri) => (
@@ -386,7 +510,7 @@ function Generador() {
                                               }
                                               className="mt-2 rounded-full bg-primary px-3 py-1.5 font-medium text-primary-foreground"
                                             >
-                                              Confirmar sustitución
+                                              Confirmar sustituciÃ³n
                                             </button>
                                           </>
                                         ) : (
@@ -404,16 +528,33 @@ function Generador() {
                                   </div>
                                 )}
 
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    reemplazar(dia.dia, tipo)
-                                  }
-                                  className="mt-3 inline-flex items-center gap-1 text-xs text-primary"
-                                >
-                                  <Shuffle className="h-3 w-3" />
-                                  Reemplazar
-                                </button>
+                                <div className="mx-4 mb-4 mt-auto grid grid-cols-2 gap-2 border-t border-border/50 pt-3">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setPreviewReceta({
+                                        receta,
+                                        dia: dia.dia,
+                                        tipo,
+                                      })
+                                    }
+                                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-input bg-background px-2.5 py-2 text-xs font-semibold text-foreground transition-all hover:border-primary hover:bg-primary-soft hover:text-primary"
+                                  >
+                                    <Eye className="h-3.5 w-3.5 text-primary" />
+                                    Ver receta
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      reemplazar(dia.dia, tipo)
+                                    }
+                                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-input bg-background px-2.5 py-2 text-xs font-semibold text-foreground transition-all hover:border-primary hover:bg-primary-soft hover:text-primary"
+                                  >
+                                    <Shuffle className="h-3.5 w-3.5" />
+                                    Reemplazar
+                                  </button>
+                                </div>
                               </>
                             ) : (
                               <div className="mt-1 text-sm text-muted-foreground">
@@ -427,41 +568,79 @@ function Generador() {
                   </Card>
                 ))}
               </div>
+              {/* GUARDAR MENÃš */}
+              <Card className="mt-6 space-y-4 p-5 shadow-card">
 
-              {/* GUARDAR MENÚ */}
-              <Card className="mt-6 space-y-3">
+                {/* Advertencias de validaciÃ³n */}
                 {pendientes > 0 && (
-                  <p className="text-sm text-warning">
-                    Tenés {pendientes} sustitución(es) pendiente(s).
-                    Confirmalas antes de guardar el menú.
+                  <p className="flex items-center gap-2 text-sm text-warning">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    TenÃ©s {pendientes} sustituciÃ³n(es) pendiente(s).
+                    Confirmalas antes de guardar el menÃº.
                   </p>
                 )}
 
                 {faltanRecetas && (
-                  <p className="text-sm text-warning">
-                    El menú tiene comidas sin receta asignada.
+                  <p className="flex items-center gap-2 text-sm text-warning">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    El menÃº tiene comidas sin receta asignada.
                   </p>
                 )}
 
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <input
-                    value={nombre}
-                    onChange={(e) => setNombre(e.target.value)}
-                    className="flex-1 rounded-full border border-input bg-background px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-ring"
-                  />
+                {/* Barra inferior de guardado */}
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+
+                  <div className="flex-1 space-y-2">
+                    <label
+                      htmlFor="nombre-menu"
+                      className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                    >
+                      Nombre del menÃº
+                    </label>
+
+                    <input
+                      id="nombre-menu"
+                      value={nombre}
+                      onChange={(e) => setNombre(e.target.value)}
+                      placeholder="Ej: Mi menÃº semanal saludable"
+                      className="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm font-medium outline-none transition focus:border-primary focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
 
                   <Button
                     onClick={guardar}
                     disabled={pendientes > 0 || faltanRecetas}
+                    className="w-full shadow-sm sm:w-auto"
                   >
-                    Guardar menú
+                    <Save className="h-4 w-4" />
+                    Guardar menÃº
                   </Button>
+
                 </div>
               </Card>
+
             </>
           )}
         </div>
       </div>
+      <RecetaPreviewModal
+        receta={previewReceta?.receta ?? null}
+        dia={previewReceta?.dia}
+        tipo={previewReceta?.tipo}
+        isOpen={previewReceta !== null}
+        onClose={() => setPreviewReceta(null)}
+        sustitucionesConfirmadas={
+          previewReceta
+            ? menu?.find((d) => d.dia === previewReceta.dia)
+                ?.sustituciones?.[previewReceta.tipo] ?? []
+            : []
+        }
+        onConfirmarSustitucion={confirmarSustitucion}
+        onReemplazar={(dia, tipo) => {
+          reemplazar(dia, tipo);
+          setPreviewReceta(null);
+        }}
+      />
     </AppLayout>
   );
 }
