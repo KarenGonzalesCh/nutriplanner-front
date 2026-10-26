@@ -4,7 +4,7 @@ import { Leaf } from "lucide-react";
 import hero from "@/assets/receta-quinoa.jpg";
 import { Button, Input } from "@/components/np/ui";
 import { useApp } from "@/lib/app-state";
-import { api } from "@/services/api";
+import { api, USE_MOCK } from "@/services/api";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -24,16 +24,38 @@ function Acceso() {
   const [correo, setCorreo] = useState("");
   const [password, setPassword] = useState("");
   const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState("");
   const { iniciarSesion } = useApp();
   const navigate = useNavigate();
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+
+    if (cargando) return;
+
     setCargando(true);
-    const res = modo === "login" ? await api.login(correo, password) : await api.registro(nombre, correo, password);
-    iniciarSesion(res.cuenta, res.token);
-    setCargando(false);
-    navigate({ to: modo === "registro" ? "/onboarding" : "/recetas" });
+    setError("");
+
+    try {
+      const res =
+        modo === "login"
+          ? await api.login(correo.trim(), password)
+          : await api.registro(nombre.trim(), correo.trim(), password);
+
+      await iniciarSesion(res.cuenta, res.token);
+
+      await navigate({
+        to: modo === "registro" ? "/onboarding" : "/recetas",
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo completar la operación. Intentá nuevamente."
+      );
+    } finally {
+      setCargando(false);
+    }
   };
 
   return (
@@ -67,14 +89,23 @@ function Acceso() {
           </div>
 
           <form onSubmit={submit} className="mt-6 space-y-4">
-            {modo === "registro" && <Input label="Nombre de usuario" required value={nombre} onChange={(e) => setNombre(e.target.value)} />}
+            {modo === "registro" && <Input label="Nombre de usuario" required minLength={3} maxLength={50} value={nombre} onChange={(e) => setNombre(e.target.value)} />}
             <Input label="Correo electrónico" type="email" required value={correo} onChange={(e) => setCorreo(e.target.value)} />
-            <Input label="Contraseña" type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} />
+            <Input label="Contraseña" type="password" required minLength={modo === "registro" ? 8 : undefined} value={password} onChange={(e) => setPassword(e.target.value)} />
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
             <Button type="submit" className="w-full" disabled={cargando}>
               {cargando ? "Cargando…" : modo === "login" ? "Ingresar" : "Crear cuenta"}
             </Button>
           </form>
-          <p className="mt-6 text-center text-xs text-muted-foreground">Versión de demostración: cualquier correo y contraseña funcionan.</p>
+          {USE_MOCK && (
+            <p className="mt-6 text-center text-xs text-muted-foreground">
+              Versión de demostración: cualquier correo y contraseña funcionan.
+            </p>
+          )}
         </div>
       </div>
     </div>
