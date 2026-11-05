@@ -14,6 +14,7 @@ import type {
   Alergia,
   CategoriaAlimento,
   Ingrediente,
+  TipoComida,
 } from "@/types";
 
 export const IMAGENES_FALLBACK = [quinoa, avena, salmon, sopa];
@@ -439,6 +440,53 @@ const delay = <T,>(value: T) =>
     setTimeout(() => resolve(value), 250)
   );
 
+// TIPOS DEL GENERADOR
+export interface GenerarMenuRequest {
+  cantidad_dias: number;
+  tipos_comida: TipoComida[];
+  comensales: number;
+  tamano_porcion: "NORMAL";
+}
+
+export interface PropuestaMenuResponse {
+  comidas: {
+    dia: number;
+    tipo_comida: TipoComida;
+    receta_id: number | null;
+    tiene_conflicto_flexible: boolean;
+    requiere_sustituciones: boolean;
+    ingredientes: {
+      receta_ingrediente_id: number;
+      ingrediente_id: number;
+      cantidad: string;
+      unidad: string;
+    }[];
+  }[];
+  estructura_completa: boolean;
+}
+// COMPATIBILIDAD DE RECETAS
+export interface CompatibilidadRecetaResponse {
+  receta_id: number;
+  nombre: string;
+  estado_compatibilidad:
+    | "COMPATIBLE"
+    | "ADAPTABLE"
+    | "INCOMPATIBLE";
+
+  ingredientes_restringidos: {
+    receta_ingrediente_id: number;
+    ingrediente_id: number;
+    nombre: string;
+    alternativas_validas: {
+      id: number;
+      ingrediente_id: number;
+      nombre: string;
+      cantidad: number;
+      unidad: string;
+    }[];
+  }[];
+}
+
 export const api = {
   // AUTENTICACIÓN
 
@@ -586,6 +634,8 @@ export const api = {
       ? delay(mock.ingredientes)
       : request<Ingrediente[]>("/ingredientes"),
 
+
+      
   // RECETAS: integración con endpoints FastAPI GET /recetas y GET /recetas/{id}
   getRecetas: async (): Promise<Receta[]> => {
     if (USE_MOCK) return delay(mock.recetas);
@@ -608,4 +658,21 @@ export const api = {
     const datos = await request<Receta>(`/recetas/${id}`);
     return normalizarReceta(datos);
   },
+
+  // COMPATIBILIDAD DE RECETAS
+  getCompatibilidadReceta: (
+    id: number
+  ): Promise<CompatibilidadRecetaResponse> =>
+    request<CompatibilidadRecetaResponse>(
+      `/recetas/${id}/compatibilidad`
+    ),
+
+  // GENERACIÓN DE MENÚS CON FASTAPI
+  generarMenu: (
+    datos: GenerarMenuRequest
+  ): Promise<PropuestaMenuResponse> =>
+    request<PropuestaMenuResponse>("/menus/generar", {
+      method: "POST",
+      body: JSON.stringify(datos),
+    }),
 };

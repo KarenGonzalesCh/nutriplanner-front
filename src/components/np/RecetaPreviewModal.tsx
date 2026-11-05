@@ -16,17 +16,22 @@ import {
   ChefHat,
   ListChecks,
 } from "lucide-react";
-import { useApp } from "@/lib/app-state";
+import { useEffect, useState } from "react";
 import {
-  nombreIngrediente,
-  resolverIngrediente,
-  estadoReceta,
-  ingredienteProhibido,
-} from "@/lib/restricciones";
-import type { Receta, TipoComida, SustitucionSeleccionada, } from "@/types";
+  api,
+  getErrorMessage,
+  type CompatibilidadRecetaResponse,
+} from "@/services/api";
+import type {
+  Receta,
+  TipoComida,
+  SustitucionSeleccionada,
+  Ingrediente,
+} from "@/types";
 
 interface RecetaPreviewModalProps {
   receta: Receta | null;
+  ingredientesCatalogo?: Ingrediente[];
   dia?: string | undefined;
   tipo?: TipoComida | undefined;
   isOpen: boolean;
@@ -46,6 +51,7 @@ interface RecetaPreviewModalProps {
 
 export function RecetaPreviewModal({
   receta,
+  ingredientesCatalogo = [],  
   dia,
   tipo,
   isOpen,
@@ -54,11 +60,53 @@ export function RecetaPreviewModal({
   sustitucionesConfirmadas = [],
   onConfirmarSustitucion,
 }: RecetaPreviewModalProps) {
-  const { perfil } = useApp();
+  const [compatibilidad, setCompatibilidad] =
+    useState<CompatibilidadRecetaResponse | null>(null);
+  const [cargandoCompatibilidad, setCargandoCompatibilidad] = useState(false);
+  const [errorCompatibilidad, setErrorCompatibilidad] = useState<string | null>(null);
+
+  const recetaId = receta?.id;
+
+  useEffect(() => {
+    let vigente = true;
+
+    if (!isOpen || recetaId == null) {
+      setCompatibilidad(null);
+      setCargandoCompatibilidad(false);
+      setErrorCompatibilidad(null);
+      return;
+    }
+
+    setCompatibilidad(null);
+    setCargandoCompatibilidad(true);
+    setErrorCompatibilidad(null);
+
+    api.getCompatibilidadReceta(recetaId)
+      .then((respuesta) => {
+        if (vigente) setCompatibilidad(respuesta);
+      })
+      .catch((error: unknown) => {
+        if (vigente) setErrorCompatibilidad(getErrorMessage(error));
+      })
+      .finally(() => {
+        if (vigente) setCargandoCompatibilidad(false);
+      });
+
+    return () => {
+      vigente = false;
+    };
+  }, [isOpen, recetaId]);
+
+  const nombreIngrediente = (id: number): string =>
+    ingredientesCatalogo.find((ing) => ing.id === id)?.nombre ??
+    `Ingrediente #${id}`;
 
   if (!receta) return null;
 
-  const estado = estadoReceta(receta, perfil);
+  // Nunca reutilizar la compatibilidad de otra receta.
+  const resultadoActual =
+    compatibilidad?.receta_id === receta.id ? compatibilidad : null;
+  const estado = resultadoActual?.estado_compatibilidad;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -124,22 +172,37 @@ export function RecetaPreviewModal({
             )}
           </div>
 
-          {/* Estado de aptitud */}
+          {/* Compatibilidad informada por FastAPI (no por los mocks) */}
           <div>
-            {estado === "COMPATIBLE" ? (
+            {cargandoCompatibilidad ? (
+              <span className="text-xs text-muted-foreground">
+                Verificando compatibilidad…
+              </span>
+            ) : errorCompatibilidad ? (
+              <span
+                className="text-xs text-warning"
+                title={errorCompatibilidad}
+              >
+                No se pudo verificar la compatibilidad
+              </span>
+            ) : estado === "COMPATIBLE" ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1 text-xs font-semibold text-primary">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Compatible con tu perfil
               </span>
-            ) : estado === "SUSTITUCION" ? (
+            ) : estado === "ADAPTABLE" ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-warning-soft px-3 py-1 text-xs font-semibold text-warning">
                 <Repeat className="h-3.5 w-3.5" />
                 Apta con sustitución
               </span>
-            ) : (
+            ) : estado === "INCOMPATIBLE" ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1 text-xs font-semibold text-destructive">
                 <AlertTriangle className="h-3.5 w-3.5" />
                 No recomendada para tu perfil
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                Compatibilidad no verificada
               </span>
             )}
           </div>
@@ -157,30 +220,30 @@ export function RecetaPreviewModal({
 
               <div className="rounded-2xl border border-border/80 bg-muted/20 p-3 sm:p-4">
                 <ul className="divide-y divide-border/50 text-xs sm:text-sm">
-                                      {receta.ingredientes.map((ri) => {
+                  {receta.ingredientes.map((ri, index) => {
+                    const restriccion = resultadoActual?.ingredientes_restringidos.find(
+                      (item) => item.ingrediente_id === ri.ingrediente_id
+                    );
+                    const requiereSustitucion = restriccion != null;
 
-
-                      const requiereSustitucion = ingredienteProhibido(
-                        ri.ingrediente_id,
-                        perfil
-                      );
-
-                      const sustitutoDisponible =
-                        requiereSustitucion &&
-                        ri.sustituto_id != null &&
-                        !ingredienteProhibido(ri.sustituto_id, perfil);
-
-                      const sustitucionConfirmada =
-                        sustitutoDisponible &&
+                    // Priorizar una alternativa ya confirmada que siga siendo válida.
+                    const alternativaConfirmada = restriccion?.alternativas_validas.find(
+                      (alternativa) =>
                         sustitucionesConfirmadas.some(
                           (s) =>
                             s.ingrediente_original_id === ri.ingrediente_id &&
-                            s.ingrediente_alternativo_id === ri.sustituto_id
-                        );
+                            s.ingrediente_alternativo_id === alternativa.ingrediente_id
+                        )
+                    );
+                    const alternativa =
+                      alternativaConfirmada ?? restriccion?.alternativas_validas[0];
+                    const sustitutoId = alternativa?.ingrediente_id;
+                    const sustitutoDisponible = sustitutoId != null;
+                    const sustitucionConfirmada = alternativaConfirmada != null;
 
-                      return (
+                    return (
                       <li
-                        key={ri.ingrediente_id}
+                        key={`${ri.ingrediente_id}-${index}`}
                         className="flex items-start justify-between gap-2 py-2"
                       >
                         <div className="leading-snug">
@@ -191,12 +254,12 @@ export function RecetaPreviewModal({
                           ) : sustitutoDisponible ? (
                             <div className="space-y-2">
                               <span className="block text-muted-foreground line-through">
-                                {nombreIngrediente(ri.ingrediente_id)}
+                                {restriccion.nombre || nombreIngrediente(ri.ingrediente_id)}
                               </span>
 
                               <span className="inline-flex items-center gap-1 font-semibold text-primary">
                                 <Repeat className="h-3 w-3" />
-                                Alternativa: {nombreIngrediente(ri.sustituto_id!)}
+                                Alternativa: {alternativa?.nombre || nombreIngrediente(sustitutoId)}
                               </span>
 
                               {sustitucionConfirmada ? (
@@ -218,7 +281,7 @@ export function RecetaPreviewModal({
                                           dia,
                                           tipo,
                                           ri.ingrediente_id,
-                                          ri.sustituto_id!
+                                          sustitutoId
                                         )
                                       }
                                       className="mt-2 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90"
@@ -232,9 +295,8 @@ export function RecetaPreviewModal({
                           ) : (
                             <div className="space-y-1">
                               <span className="font-medium text-destructive">
-                                {nombreIngrediente(ri.ingrediente_id)}
+                                {restriccion.nombre || nombreIngrediente(ri.ingrediente_id)}
                               </span>
-
                               <span className="block text-xs text-destructive">
                                 No hay alternativa compatible.
                               </span>
@@ -252,7 +314,7 @@ export function RecetaPreviewModal({
               </div>
             </div>
 
-            {/* Columna de Preparación (3 de 5) */}
+            {/* Columna de PreparaciÃ³n (3 de 5) */}
             <div className="space-y-3 md:col-span-3">
               <div className="flex items-center gap-2 text-sm font-bold tracking-tight text-foreground">
                 <ChefHat className="h-4 w-4 text-primary" />
