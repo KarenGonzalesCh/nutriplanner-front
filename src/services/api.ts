@@ -675,4 +675,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify(datos),
     }),
+
+  // FAVORITAS Y EXCLUIDAS
+  getFavoritas: (): Promise<number[]> =>
+    request<number[]>("/recetas/favoritas"),
+
+  getExcluidas: (): Promise<number[]> =>
+    request<number[]>("/recetas/excluidas"),
+
+  agregarFavorita: (id: number): Promise<void> =>
+    request<void>(`/recetas/${id}/favorita`, { method: "POST" }),
+
+  quitarFavorita: (id: number): Promise<void> =>
+    request<void>(`/recetas/${id}/favorita`, { method: "DELETE" }),
+
+  agregarExclusion: (id: number): Promise<void> =>
+    request<void>(`/recetas/${id}/exclusion`, { method: "POST" }),
+
+  quitarExclusion: (id: number): Promise<void> =>
+    request<void>(`/recetas/${id}/exclusion`, { method: "DELETE" }),
 };
