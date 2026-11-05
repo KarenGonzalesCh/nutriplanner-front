@@ -39,8 +39,10 @@ function Menus() {
   const [erroresIds, setErroresIds] = useState<number[]>([]);
   const [cargando, setCargando] = useState(false);
 
+
   useEffect(() => {
     let cancelado = false;
+
     if (!idsKey) {
       setCompatibilidades({});
       setCatalogo({});
@@ -52,39 +54,55 @@ function Menus() {
     const ids = idsKey.split(",").map(Number);
     setCargando(true);
 
-    // Compatibilidad incluye el nombre incluso si la receta es adaptable.
-    // El catálogo proporciona imagen y tiempo para recetas compatibles.
     Promise.all([
-      Promise.allSettled(ids.map((id) => api.getCompatibilidadReceta(id))),
+      Promise.allSettled(
+        ids.map((id) => api.getCompatibilidadReceta(id))
+      ),
       api.getRecetas().catch(() => [] as Receta[]),
     ])
       .then(([resultados, recetasCatalogo]) => {
         if (cancelado) return;
-        const nuevoMapa: Record<number, CompatibilidadRecetaResponse> = {};
+
+        const nuevoMapa: Record<
+          number,
+          CompatibilidadRecetaResponse
+        > = {};
+
         const idsFallidos: number[] = [];
+
         resultados.forEach((resultado, indice) => {
+          const id = ids[indice];
+
+          if (id === undefined) return;
+
           if (resultado.status === "fulfilled") {
-            nuevoMapa[ids[indice]] = resultado.value;
+            nuevoMapa[id] = resultado.value;
           } else {
-            idsFallidos.push(ids[indice]);
+            idsFallidos.push(id);
           }
         });
+
         const nuevoCatalogo: Record<number, Receta> = {};
+
         recetasCatalogo.forEach((receta) => {
           nuevoCatalogo[receta.id] = receta;
         });
+
         setCompatibilidades(nuevoMapa);
         setCatalogo(nuevoCatalogo);
         setErroresIds(idsFallidos);
       })
       .finally(() => {
-        if (!cancelado) setCargando(false);
+        if (!cancelado) {
+          setCargando(false);
+        }
       });
 
     return () => {
       cancelado = true;
     };
-  }, [idsKey, perfil]); // Reconsultar compatibilidad si se modifica el perfil.
+  }, [idsKey, perfil]);
+
 
   return (
     <AppLayout>

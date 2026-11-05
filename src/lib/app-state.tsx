@@ -1,8 +1,8 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { menusIniciales } from "@/data/mock";
-import { api, setToken, setOnUnauthorized, ApiError, USE_MOCK } from "@/services/api";
+import { api, setToken, setOnUnauthorized, ApiError, getErrorMessage, USE_MOCK } from "@/services/api";
 import type { Cuenta, Menu, PerfilAlimentario } from "@/types";
 
 interface AppState {
@@ -17,8 +17,8 @@ interface AppState {
   setPerfil: (p: PerfilAlimentario) => Promise<void>;
   guardarMenu: (m: Omit<Menu, "id" | "creado">) => void;
   borrarMenu: (id: number) => void;
-  alternarFavorita: (id: number) => void;
-  alternarExcluida: (id: number) => void;
+  alternarFavorita: (id: number) => Promise<void>;
+  alternarExcluida: (id: number) => Promise<void>;
 }
 
 const Ctx = createContext<AppState | null>(null);
@@ -39,6 +39,8 @@ const leer = <T,>(key: string, fallback: T): T => {
   }
 };
 
+type TipoPreferencia = "favorita" | "exclusion";
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [cuenta, setCuenta] = useState<Cuenta | null>(null);
@@ -48,33 +50,80 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [excluidas, setExcluidas] = useState<number[]>([]);
   const [cargandoSesion, setCargandoSesion] = useState(true);
 
+  // Evita aplicar respuestas de una sesión anterior luego de cerrar sesión.
+  const versionSesion = useRef(0);
+  // Evita que un doble clic envíe dos operaciones contradictorias.
+  const operacionesPendientes = useRef<Set<string>>(new Set());
+
+  // Recarga perfil y preferencias desde FastAPI. No usa localStorage en producción.
+  const sincronizarUsuario = async (
+    version: number,
+    puedeActualizar: () => boolean = () => true
+  ): Promise<void> => {
+    const [resultadoPerfil, resultadoFavoritas, resultadoExcluidas] =
+      await Promise.allSettled([
+        api.getPerfil(),
+        api.getFavoritas(),
+        api.getExcluidas(),
+      ]);
+
+    if (version !== versionSesion.current || !puedeActualizar()) return;
+
+    if (resultadoPerfil.status === "fulfilled") {
+      setPerfilState(resultadoPerfil.value ?? perfilVacio);
+    } else {
+      console.error("No se pudo recuperar el perfil:", resultadoPerfil.reason);
+    }
+
+    if (resultadoFavoritas.status === "fulfilled") {
+      setFavoritas(resultadoFavoritas.value);
+    } else {
+      console.error("No se pudieron recuperar favoritas:", resultadoFavoritas.reason);
+    }
+
+    if (resultadoExcluidas.status === "fulfilled") {
+      setExcluidas(resultadoExcluidas.value);
+    } else {
+      console.error("No se pudieron recuperar exclusiones:", resultadoExcluidas.reason);
+    }
+
+    if (
+      resultadoFavoritas.status === "rejected" ||
+      resultadoExcluidas.status === "rejected"
+    ) {
+      toast.error("No se pudieron sincronizar todas tus preferencias. Actualizá la página para reintentar.", {
+        id: "preferencias-sync-error",
+      });
+    }
+  };
+
   // INICIAR SESIÓN
   const iniciarSesion = async (
     nuevaCuenta: Cuenta,
     nuevoToken: string
   ): Promise<void> => {
+    const version = ++versionSesion.current;
+    operacionesPendientes.current.clear();
     setToken(nuevoToken);
     sessionStorage.setItem("nutriplanner-token", nuevoToken);
     setCuenta(nuevaCuenta);
     setPerfilState(perfilVacio);
+    setFavoritas([]);
+    setExcluidas([]);
 
     if (USE_MOCK) return;
-
-    try {
-      const perfilGuardado = await api.getPerfil();
-      setPerfilState(perfilGuardado ?? perfilVacio);
-    } catch (err) {
-      console.error("No se pudo recuperar el perfil:", err);
-    }
+    await sincronizarUsuario(version);
   };
 
   // CERRAR SESIÓN
   const cerrarSesion = useCallback(() => {
+    ++versionSesion.current;
+    operacionesPendientes.current.clear();
     setToken(null);
     try {
       sessionStorage.removeItem("nutriplanner-token");
     } catch {
-      // Ignorar si sessionStorage no está accesible
+      // Ignorar si sessionStorage no está accesible.
     }
     setCuenta(null);
     setPerfilState(perfilVacio);
@@ -95,7 +144,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [cerrarSesion]);
 
-  // CARGAR DATOS SIMULADOS
+  // DATOS SIMULADOS: solamente en modo mock.
   useEffect(() => {
     if (!USE_MOCK) return;
 
@@ -117,7 +166,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPerfilState(perfilGuardado);
   };
 
-  // MENÚS
+  // MENÚS: se mantienen como están para abordarlos en la siguiente etapa.
   const guardarMenu = (m: Omit<Menu, "id" | "creado">) =>
     setMenus(prev => {
       const next = [
@@ -135,24 +184,84 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return next;
     });
 
-  // FAVORITOS Y EXCLUSIONES
-  const alternar = (
+  // Conserva el funcionamiento local si explícitamente se habilita USE_MOCK.
+  const alternarLocal = (
     key: "nutriplanner-favoritas" | "nutriplanner-excluidas",
     setter: (fn: (p: number[]) => number[]) => void,
     id: number
-  ) =>
+  ): void => {
     setter(prev => {
       const next = prev.includes(id)
         ? prev.filter(x => x !== id)
         : [...prev, id];
-
       localStorage.setItem(key, JSON.stringify(next));
       return next;
     });
+  };
+
+  // FAVORITAS Y EXCLUSIONES: operaciones reales de FastAPI/Supabase.
+  const alternarPreferencia = async (
+    tipo: TipoPreferencia,
+    id: number
+  ): Promise<void> => {
+    if (USE_MOCK) {
+      if (tipo === "favorita") {
+        alternarLocal("nutriplanner-favoritas", setFavoritas, id);
+      } else {
+        alternarLocal("nutriplanner-excluidas", setExcluidas, id);
+      }
+      return;
+    }
+
+    if (!cuenta) {
+      toast.error("Iniciá sesión para modificar tus preferencias.");
+      return;
+    }
+
+    const version = versionSesion.current;
+    const clave = `${version}:${tipo}:${id}`;
+    if (operacionesPendientes.current.has(clave)) return;
+    operacionesPendientes.current.add(clave);
+
+    const esFavorita = tipo === "favorita";
+    const actuales = esFavorita ? favoritas : excluidas;
+    const estabaAgregada = actuales.includes(id);
+    const actualizar = esFavorita ? setFavoritas : setExcluidas;
+
+    try {
+      if (esFavorita) {
+        if (estabaAgregada) {
+          await api.quitarFavorita(id);
+        } else {
+          await api.agregarFavorita(id);
+        }
+      } else if (estabaAgregada) {
+        await api.quitarExclusion(id);
+      } else {
+        await api.agregarExclusion(id);
+      }
+
+      if (version !== versionSesion.current) return;
+
+      // El ícono cambia sólo cuando FastAPI confirmó la operación (204).
+      actualizar(prev =>
+        estabaAgregada
+          ? prev.filter(x => x !== id)
+          : prev.includes(id) ? prev : [...prev, id]
+      );
+    } catch (err) {
+      if (version === versionSesion.current) {
+        toast.error(getErrorMessage(err, "No se pudo guardar la preferencia."));
+      }
+    } finally {
+      operacionesPendientes.current.delete(clave);
+    }
+  };
 
   // RESTAURAR SESIÓN AL RECARGAR
   useEffect(() => {
     let activo = true;
+    const version = versionSesion.current;
 
     const restaurarSesion = async () => {
       const tokenGuardado = sessionStorage.getItem("nutriplanner-token");
@@ -166,25 +275,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       try {
         const cuentaActual = await api.getCuenta();
+        if (!activo || version !== versionSesion.current) return;
 
-        if (activo) {
-          setCuenta(cuentaActual);
-        }
-
-        try {
-          const perfilGuardado = await api.getPerfil();
-
-          if (activo) {
-            setPerfilState(perfilGuardado ?? perfilVacio);
-          }
-        } catch (err) {
-          console.error("No se pudo recuperar el perfil:", err);
-        }
-
+        setCuenta(cuentaActual);
+        setFavoritas([]);
+        setExcluidas([]);
+        await sincronizarUsuario(version, () => activo);
       } catch (err) {
         console.error("No se pudo recuperar la sesión:", err);
 
-        if (activo) {
+        if (activo && version === versionSesion.current) {
           if (err instanceof ApiError && err.isNetworkError) {
             toast.error(
               "No se pudo conectar con el servidor para sincronizar tu sesión.",
@@ -195,16 +295,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
             try {
               sessionStorage.removeItem("nutriplanner-token");
             } catch {
-              // Ignorar
+              // Ignorar.
             }
           }
           setCuenta(null);
           setPerfilState(perfilVacio);
+          setFavoritas([]);
+          setExcluidas([]);
         }
       } finally {
-        if (activo) {
-          setCargandoSesion(false);
-        }
+        if (activo) setCargandoSesion(false);
       }
     };
 
@@ -229,10 +329,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setPerfil,
         guardarMenu,
         borrarMenu,
-        alternarFavorita: (id) =>
-          alternar("nutriplanner-favoritas", setFavoritas, id),
-        alternarExcluida: (id) =>
-          alternar("nutriplanner-excluidas", setExcluidas, id),
+        alternarFavorita: (id) => alternarPreferencia("favorita", id),
+        alternarExcluida: (id) => alternarPreferencia("exclusion", id),
       }}
     >
       {children}
