@@ -54,8 +54,6 @@ export interface PerfilAlimentario {
   categorias_evitadas: number[];
 }
 
-
-
 export interface SustitucionSeleccionada {
   ingrediente_original_id: number;
   ingrediente_alternativo_id: number;
@@ -74,4 +72,31 @@ export interface Menu {
   nombre: string;
   creado: string;
   dias: DiaMenu[];
+}
+
+export type EstadoCompatibilidad =
+  | "COMPATIBLE"
+  | "ADAPTABLE"
+  | "INCOMPATIBLE";
+
+export interface AlternativaDisponible {
+  id: number;
+  ingrediente_id: number;
+  nombre: string;
+  cantidad: number;
+  unidad: string;
+}
+
+export interface IngredienteRestringido {
+  receta_ingrediente_id: number;
+  ingrediente_id: number;
+  nombre: string;
+  alternativas_validas: AlternativaDisponible[];
+}
+
+export interface CompatibilidadReceta {
+  receta_id: number;
+  nombre: string;
+  estado_compatibilidad: EstadoCompatibilidad;
+  ingredientes_restringidos: IngredienteRestringido[];
 }

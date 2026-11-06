@@ -639,7 +639,9 @@ export const api = {
   // RECETAS: integración con endpoints FastAPI GET /recetas y GET /recetas/{id}
   getRecetas: async (): Promise<Receta[]> => {
     if (USE_MOCK) return delay(mock.recetas);
-    const datos = await request<Receta[]>("/recetas");
+    const datos = await request<Receta[]>(
+      "/recetas?incluir_incompatibles=true"
+    );
     return Array.isArray(datos) ? datos.map((r, i) => normalizarReceta(r, i)) : [];
   },
 
@@ -684,14 +686,22 @@ export const api = {
     request<number[]>("/recetas/excluidas"),
 
   agregarFavorita: (id: number): Promise<void> =>
-    request<void>(`/recetas/${id}/favorita`, { method: "POST" }),
+    request<void>(`/recetas/${id}/favorita`, {
+      method: "POST",
+    }),
 
   quitarFavorita: (id: number): Promise<void> =>
-    request<void>(`/recetas/${id}/favorita`, { method: "DELETE" }),
+    request<void>(`/recetas/${id}/favorita`, {
+      method: "DELETE",
+    }),
 
   agregarExclusion: (id: number): Promise<void> =>
-    request<void>(`/recetas/${id}/exclusion`, { method: "POST" }),
+    request<void>(`/recetas/${id}/exclusion`, {
+      method: "POST",
+    }),
 
   quitarExclusion: (id: number): Promise<void> =>
-    request<void>(`/recetas/${id}/exclusion`, { method: "DELETE" }),
+    request<void>(`/recetas/${id}/exclusion`, {
+      method: "DELETE",
+    }),
 };
