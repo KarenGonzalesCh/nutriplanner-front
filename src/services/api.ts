@@ -14,6 +14,7 @@ import type {
   Alergia,
   CategoriaAlimento,
   Ingrediente,
+  CompatibilidadReceta,
 } from "@/types";
 
 export const IMAGENES_FALLBACK = [quinoa, avena, salmon, sopa];
@@ -589,7 +590,9 @@ export const api = {
   // RECETAS: integración con endpoints FastAPI GET /recetas y GET /recetas/{id}
   getRecetas: async (): Promise<Receta[]> => {
     if (USE_MOCK) return delay(mock.recetas);
-    const datos = await request<Receta[]>("/recetas");
+    const datos = await request<Receta[]>(
+      "/recetas?incluir_incompatibles=true"
+    );
     return Array.isArray(datos) ? datos.map((r, i) => normalizarReceta(r, i)) : [];
   },
 
@@ -608,4 +611,13 @@ export const api = {
     const datos = await request<Receta>(`/recetas/${id}`);
     return normalizarReceta(datos);
   },
+
+  getCompatibilidadReceta: async (
+    id: number | string
+  ): Promise<CompatibilidadReceta> => {
+    return request<CompatibilidadReceta>(
+      `/recetas/${id}/compatibilidad`
+    );
+  },
+
 };
