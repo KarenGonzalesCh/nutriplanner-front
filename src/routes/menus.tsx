@@ -1,4 +1,5 @@
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import {
   CalendarDays,
   Clock,
@@ -10,16 +11,98 @@ import {
 } from "lucide-react";
 import { AppLayout } from "@/components/np/AppLayout";
 import { Button, Card, PageHeader, comidaTexto } from "@/components/np/ui";
-import { recetas } from "@/data/mock";
 import { useApp } from "@/lib/app-state";
-import { recetaApta } from "@/lib/restricciones";
-import type { TipoComida } from "@/types";
+import { api, type CompatibilidadRecetaResponse } from "@/services/api";
+import type { Receta, TipoComida } from "@/types";
 
 export const Route = createFileRoute("/menus")({ component: Menus });
 
 function Menus() {
   const { menus, borrarMenu, perfil } = useApp();
   const navigate = useNavigate();
+
+  // Los IDs guardados corresponden a recetas reales, no al catálogo mock.
+  const idsKey = [...new Set(
+    menus.flatMap((m) =>
+      m.dias.flatMap((d) =>
+        Object.values(d.comidas).filter(
+          (id): id is number => typeof id === "number" && id > 0
+        )
+      )
+    )
+  )].sort((a, b) => a - b).join(",");
+
+  const [compatibilidades, setCompatibilidades] = useState<
+    Record<number, CompatibilidadRecetaResponse>
+  >({});
+  const [catalogo, setCatalogo] = useState<Record<number, Receta>>({});
+  const [erroresIds, setErroresIds] = useState<number[]>([]);
+  const [cargando, setCargando] = useState(false);
+
+
+  useEffect(() => {
+    let cancelado = false;
+
+    if (!idsKey) {
+      setCompatibilidades({});
+      setCatalogo({});
+      setErroresIds([]);
+      setCargando(false);
+      return;
+    }
+
+    const ids = idsKey.split(",").map(Number);
+    setCargando(true);
+
+    Promise.all([
+      Promise.allSettled(
+        ids.map((id) => api.getCompatibilidadReceta(id))
+      ),
+      api.getRecetas().catch(() => [] as Receta[]),
+    ])
+      .then(([resultados, recetasCatalogo]) => {
+        if (cancelado) return;
+
+        const nuevoMapa: Record<
+          number,
+          CompatibilidadRecetaResponse
+        > = {};
+
+        const idsFallidos: number[] = [];
+
+        resultados.forEach((resultado, indice) => {
+          const id = ids[indice];
+
+          if (id === undefined) return;
+
+          if (resultado.status === "fulfilled") {
+            nuevoMapa[id] = resultado.value;
+          } else {
+            idsFallidos.push(id);
+          }
+        });
+
+        const nuevoCatalogo: Record<number, Receta> = {};
+
+        recetasCatalogo.forEach((receta) => {
+          nuevoCatalogo[receta.id] = receta;
+        });
+
+        setCompatibilidades(nuevoMapa);
+        setCatalogo(nuevoCatalogo);
+        setErroresIds(idsFallidos);
+      })
+      .finally(() => {
+        if (!cancelado) {
+          setCargando(false);
+        }
+      });
+
+    return () => {
+      cancelado = true;
+    };
+  }, [idsKey, perfil]);
+
 
   return (
     <AppLayout>
@@ -34,6 +117,12 @@ function Menus() {
           </Button>
         </Link>
       </PageHeader>
+
+      {erroresIds.length > 0 && !cargando && (
+        <p className="mb-4 text-sm text-warning">
+          No se pudieron consultar {erroresIds.length} receta(s) del backend.
+        </p>
+      )}
 
       {menus.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border/80 bg-card/50 px-4 py-16 text-center">
@@ -58,10 +147,10 @@ function Menus() {
           {menus.map((m) => {
             const invalidos = m.dias
               .flatMap((d) => Object.values(d.comidas))
-              .filter((id) => {
-                const r = recetas.find((x) => x.id === id);
-                return !r || !recetaApta(r, perfil);
-              }).length;
+              .filter((id) =>
+                id != null &&
+                compatibilidades[id]?.estado_compatibilidad === "INCOMPATIBLE"
+              ).length;
 
             return (
               <Card key={m.id} className="space-y-6 p-5 sm:p-6 shadow-card">
@@ -146,10 +235,12 @@ function Menus() {
                         {/* Lista de comidas: vertical en mobile (1 col), grilla en desktop */}
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                           {comidasList.map(([tipo, id]) => {
-                            const r = recetas.find((x) => x.id === id);
-                            const apta = r ? recetaApta(r, perfil) : true;
+                            const detalle = compatibilidades[id];
+                            const resumen = catalogo[id];
+                            const estado = detalle?.estado_compatibilidad;
+                            const nombre = detalle?.nombre;
 
-                            if (!r) {
+                            if (!detalle) {
                               return (
                                 <div
                                   key={tipo}
@@ -163,7 +254,11 @@ function Menus() {
                                       {comidaTexto[tipo]}
                                     </span>
                                     <p className="text-xs text-muted-foreground">
-                                      Receta no disponible
+                                      {cargando
+                                        ? "Cargando receta..."
+                                        : erroresIds.includes(id)
+                                          ? `No se pudo consultar la receta #${id}`
+                                          : `Sin información de la receta #${id}`}
                                     </p>
                                   </div>
                                 </div>
@@ -175,20 +270,26 @@ function Menus() {
                                 key={tipo}
                                 className="group flex items-center gap-3 rounded-xl border border-border/80 bg-card p-2.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
                               >
-                                {/* Mini imagen preview */}
-                                <Link
-                                  to="/recetas/$id"
-                                  params={{ id: String(r.id) }}
-                                  className="group/img relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-muted"
-                                  title={`Ver receta de ${r.nombre}`}
-                                >
-                                  <img
-                                    src={r.imagen}
-                                    alt={r.nombre}
-                                    loading="lazy"
-                                    className="h-full w-full object-cover transition-transform duration-300 group-hover/img:scale-110"
-                                  />
-                                </Link>
+                                {/* Mini imagen: disponible para recetas del catálogo compatible */}
+                                {estado === "COMPATIBLE" && resumen?.imagen ? (
+                                  <Link
+                                    to="/recetas/$id"
+                                    params={{ id: String(id) }}
+                                    className="group/img relative h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-muted"
+                                    title={`Ver receta de ${nombre}`}
+                                  >
+                                    <img
+                                      src={resumen.imagen}
+                                      alt={nombre}
+                                      loading="lazy"
+                                      className="h-full w-full object-cover transition-transform duration-300 group-hover/img:scale-110"
+                                    />
+                                  </Link>
+                                ) : (
+                                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                                    <Utensils className="h-5 w-5" />
+                                  </div>
+                                )}
 
                                 {/* Información de la comida */}
                                 <div className="min-w-0 flex-1">
@@ -196,22 +297,34 @@ function Menus() {
                                     {comidaTexto[tipo]}
                                   </span>
 
-                                  <Link
-                                    to="/recetas/$id"
-                                    params={{ id: String(r.id) }}
-                                    className="block truncate font-semibold text-sm text-foreground transition-colors hover:text-primary"
-                                    title={r.nombre}
-                                  >
-                                    {r.nombre}
-                                  </Link>
+                                  {estado === "COMPATIBLE" ? (
+                                    <Link
+                                      to="/recetas/$id"
+                                      params={{ id: String(id) }}
+                                      className="block truncate font-semibold text-sm text-foreground transition-colors hover:text-primary"
+                                      title={nombre}
+                                    >
+                                      {nombre}
+                                    </Link>
+                                  ) : (
+                                    <span className="block truncate font-semibold text-sm text-foreground" title={nombre}>
+                                      {nombre}
+                                    </span>
+                                  )}
 
                                   <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                                    <span className="inline-flex items-center gap-1 font-medium">
-                                      <Clock className="h-3 w-3 text-primary" />
-                                      {r.tiempo_preparacion} min
-                                    </span>
-
-                                    {!apta && (
+                                    {resumen && (
+                                      <span className="inline-flex items-center gap-1 font-medium">
+                                        <Clock className="h-3 w-3 text-primary" />
+                                        {resumen.tiempo_preparacion} min
+                                      </span>
+                                    )}
+                                    {estado === "ADAPTABLE" && (
+                                      <span className="rounded bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold text-warning">
+                                        Requiere sustitución
+                                      </span>
+                                    )}
+                                    {estado === "INCOMPATIBLE" && (
                                       <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
                                         Incompatible
                                       </span>
