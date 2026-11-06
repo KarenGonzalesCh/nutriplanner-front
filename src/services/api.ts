@@ -487,6 +487,18 @@ export interface CompatibilidadRecetaResponse {
   }[];
 }
 
+
+export interface SustitucionGuardadaResponse {
+  receta_id: number;
+  receta_ingrediente_id: number;
+  alternativa_id: number;
+  ingrediente_alternativo_id: number;
+  nombre: string;
+  cantidad: number;
+  unidad: string;
+}
+
+
 export const api = {
   // AUTENTICACIÓN
 
@@ -668,6 +680,43 @@ export const api = {
     request<CompatibilidadRecetaResponse>(
       `/recetas/${id}/compatibilidad`
     ),
+
+
+  // SUSTITUCIONES GUARDADAS POR USUARIO
+
+  getSustitucionesReceta: (
+    recetaId: number
+  ): Promise<SustitucionGuardadaResponse[]> =>
+    request<SustitucionGuardadaResponse[]>(
+      `/recetas/${recetaId}/sustituciones`
+    ),
+
+  guardarSustitucionReceta: (
+    recetaId: number,
+    recetaIngredienteId: number,
+    alternativaId: number
+  ): Promise<SustitucionGuardadaResponse> =>
+    request<SustitucionGuardadaResponse>(
+      `/recetas/${recetaId}/sustituciones/${recetaIngredienteId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          alternativa_id: alternativaId,
+        }),
+      }
+    ),
+
+  eliminarSustitucionReceta: (
+    recetaId: number,
+    recetaIngredienteId: number
+  ): Promise<void> =>
+    request<void>(
+      `/recetas/${recetaId}/sustituciones/${recetaIngredienteId}`,
+      {
+        method: "DELETE",
+      }
+    ),
+
 
   // GENERACIÓN DE MENÚS CON FASTAPI
   generarMenu: (

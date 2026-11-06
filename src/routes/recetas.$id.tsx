@@ -5,7 +5,12 @@ import { AppLayout } from "@/components/np/AppLayout";
 import { Badge, Button, Card, comidaTexto, nivelTexto } from "@/components/np/ui";
 import { recetas as mockRecetas } from "@/data/mock";
 import { useApp } from "@/lib/app-state";
-import { api, ApiError, getErrorMessage } from "@/services/api";
+import {
+  api,
+  ApiError,
+  getErrorMessage,
+  type SustitucionGuardadaResponse,
+} from "@/services/api";
 import { nombreIngrediente } from "@/lib/restricciones";
 import type { CompatibilidadReceta, Ingrediente, Receta } from "@/types";
 
@@ -25,23 +30,49 @@ export const Route = createFileRoute("/recetas/$id")({
       ],
     };
   },
+
   component: Detalle,
 });
 
 function Detalle() {
   const { id } = Route.useParams();
-  const { favoritas, excluidas, alternarFavorita, alternarExcluida } = useApp();
+
+  const {
+    favoritas,
+    excluidas,
+    alternarFavorita,
+    alternarExcluida,
+  } = useApp();
 
   const [r, setR] = useState<Receta | null>(null);
+
   const [compatibilidad, setCompatibilidad] =
     useState<CompatibilidadReceta | null>(null);
-  const [ingredientesCatalogo, setIngredientesCatalogo] = useState<Ingrediente[]>([]);
+
+  const [sustitucionesGuardadas, setSustitucionesGuardadas] =
+    useState<SustitucionGuardadaResponse[]>([]);
+
+
+  const [selecciones, setSelecciones] =
+    useState<Record<number, number>>({});
+
+  const [guardandoId, setGuardandoId] =
+    useState<number | null>(null);
+
+  const [errorSustitucion, setErrorSustitucion] =
+    useState<string | null>(null);
+
+
+  const [ingredientesCatalogo, setIngredientesCatalogo] =
+    useState<Ingrediente[]>([]);
+
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [es404, setEs404] = useState(false);
   const [esErrorRed, setEsErrorRed] = useState(false);
 
   const cargar = useCallback(async () => {
+
     setCargando(true);
     setError(null);
     setEs404(false);
@@ -52,14 +83,28 @@ function Detalle() {
         datosReceta,
         datosIngredientes,
         datosCompatibilidad,
+        datosSustituciones,
       ] = await Promise.all([
         api.getReceta(id),
         api.getIngredientes().catch(() => []),
-        api.getCompatibilidadReceta(id),
+        api.getCompatibilidadReceta(Number(id)),
+        api.getSustitucionesReceta(Number(id)),
       ]);
+
 
       setR(datosReceta);
       setCompatibilidad(datosCompatibilidad);
+      setSustitucionesGuardadas(datosSustituciones);
+
+      setSelecciones(
+        Object.fromEntries(
+          datosSustituciones.map((sustitucion) => [
+            sustitucion.receta_ingrediente_id,
+            sustitucion.alternativa_id,
+          ])
+        )
+      );
+
       if (datosIngredientes && datosIngredientes.length) {
         setIngredientesCatalogo(datosIngredientes);
       }
@@ -86,6 +131,87 @@ function Detalle() {
     if (item) return item.nombre;
     return nombreIngrediente(ingId);
   };
+
+
+  const guardarSustitucion = async (
+    recetaIngredienteId: number
+  ) => {
+    const alternativaId = selecciones[recetaIngredienteId];
+
+    if (alternativaId === undefined) {
+      return;
+    }
+
+    setGuardandoId(recetaIngredienteId);
+    setErrorSustitucion(null);
+
+    try {
+      const guardada = await api.guardarSustitucionReceta(
+        Number(id),
+        recetaIngredienteId,
+        alternativaId
+      );
+
+      setSustitucionesGuardadas((anteriores) => [
+        ...anteriores.filter(
+          (item) =>
+            item.receta_ingrediente_id !== recetaIngredienteId
+        ),
+        guardada,
+      ]);
+
+    } catch (error) {
+      setErrorSustitucion(
+        getErrorMessage(
+          error,
+          "No se pudo guardar la sustitución."
+        )
+      );
+
+    } finally {
+      setGuardandoId(null);
+    }
+  };
+
+
+  const eliminarSustitucion = async (
+    recetaIngredienteId: number
+  ) => {
+    setGuardandoId(recetaIngredienteId);
+    setErrorSustitucion(null);
+
+    try {
+      await api.eliminarSustitucionReceta(
+        Number(id),
+        recetaIngredienteId
+      );
+
+      setSustitucionesGuardadas((anteriores) =>
+        anteriores.filter(
+          (item) =>
+            item.receta_ingrediente_id !== recetaIngredienteId
+        )
+      );
+
+      setSelecciones((anteriores) => {
+        const nuevasSelecciones = { ...anteriores };
+        delete nuevasSelecciones[recetaIngredienteId];
+        return nuevasSelecciones;
+      });
+
+    } catch (error) {
+      setErrorSustitucion(
+        getErrorMessage(
+          error,
+          "No se pudo eliminar la sustitución."
+        )
+      );
+
+    } finally {
+      setGuardandoId(null);
+    }
+  };
+
 
   return (
     <AppLayout>
@@ -297,7 +423,7 @@ function Detalle() {
                         </span>
                       </div>
 
-                      {restringido && (
+                      {restriccion && (
                         <div className="mt-2">
                           {alternativas.length > 0 ? (
                             <div className="rounded-lg bg-warning-soft p-3">
@@ -306,16 +432,128 @@ function Detalle() {
                                 Alternativas disponibles:
                               </p>
 
-                              <ul className="mt-2 space-y-1">
-                                {alternativas.map((alt) => (
-                                  <li
-                                    key={alt.id}
-                                    className="text-xs text-foreground"
+
+
+                              <fieldset className="mt-3">
+                                <legend className="mb-2 text-xs font-semibold">
+                                  Elegí una alternativa:
+                                </legend>
+
+                                <div className="space-y-2">
+                                  {alternativas.map((alt) => (
+                                    <label
+                                      key={alt.id}
+                                      className="flex cursor-pointer items-center gap-2 text-xs text-foreground"
+                                    >
+                                      <input
+                                        type="radio"
+                                        name={`sustitucion-${restriccion.receta_ingrediente_id}`}
+                                        value={alt.id}
+                                        checked={
+                                          selecciones[
+                                            restriccion.receta_ingrediente_id
+                                          ] === alt.id
+                                        }
+                                        disabled={guardandoId !== null}
+                                        onChange={() => {
+                                          setSelecciones((anteriores) => ({
+                                            ...anteriores,
+                                            [restriccion.receta_ingrediente_id]:
+                                              alt.id,
+                                          }));
+
+                                          setErrorSustitucion(null);
+                                        }}
+                                      />
+
+                                      <span>
+                                        {alt.nombre} — {alt.cantidad}{" "}
+                                        {alt.unidad}
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </fieldset>
+
+
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  disabled={
+                                    guardandoId !== null ||
+                                    selecciones[
+                                      restriccion.receta_ingrediente_id
+                                    ] === undefined ||
+                                    sustitucionesGuardadas.some(
+                                      (item) =>
+                                        item.receta_ingrediente_id ===
+                                          restriccion.receta_ingrediente_id &&
+                                        item.alternativa_id ===
+                                          selecciones[
+                                            restriccion.receta_ingrediente_id
+                                          ]
+                                    )
+                                  }
+                                  onClick={() =>
+                                    void guardarSustitucion(
+                                      restriccion.receta_ingrediente_id
+                                    )
+                                  }
+                                >
+                                  {guardandoId ===
+                                  restriccion.receta_ingrediente_id
+                                    ? "Guardando..."
+                                    : "Guardar sustitución"}
+                                </Button>
+
+                                {sustitucionesGuardadas.some(
+                                  (item) =>
+                                    item.receta_ingrediente_id ===
+                                    restriccion.receta_ingrediente_id
+                                ) && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={guardandoId !== null}
+                                    onClick={() =>
+                                      void eliminarSustitucion(
+                                        restriccion.receta_ingrediente_id
+                                      )
+                                    }
                                   >
-                                    {alt.nombre} — {alt.cantidad} {alt.unidad}
-                                  </li>
+                                    {guardandoId ===
+                                    restriccion.receta_ingrediente_id
+                                      ? "Procesando..."
+                                      : "Quitar sustitución"}
+                                  </Button>
+                                )}
+                              </div>
+
+
+                              {sustitucionesGuardadas
+                                .filter(
+                                  (item) =>
+                                    item.receta_ingrediente_id ===
+                                    restriccion.receta_ingrediente_id
+                                )
+                                .map((item) => (
+                                  <p
+                                    key={item.alternativa_id}
+                                    className="mt-2 text-xs font-medium text-green-700"
+                                  >
+                                    ✓ Sustitución guardada: {item.nombre}
+                                  </p>
                                 ))}
-                              </ul>
+
+                              {errorSustitucion && (
+                                <p className="mt-2 text-xs text-destructive">
+                                  {errorSustitucion}
+                                </p>
+                              )}
+
+
                             </div>
                           ) : (
                             <p className="text-xs text-destructive">
