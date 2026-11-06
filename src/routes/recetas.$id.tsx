@@ -5,9 +5,9 @@ import { AppLayout } from "@/components/np/AppLayout";
 import { Badge, Button, Card, comidaTexto, nivelTexto } from "@/components/np/ui";
 import { recetas as mockRecetas } from "@/data/mock";
 import { useApp } from "@/lib/app-state";
-import { ingredienteProhibido, nombreIngrediente, recetaApta } from "@/lib/restricciones";
 import { api, ApiError, getErrorMessage } from "@/services/api";
-import type { Ingrediente, Receta } from "@/types";
+import { nombreIngrediente } from "@/lib/restricciones";
+import type { CompatibilidadReceta, Ingrediente, Receta } from "@/types";
 
 export const Route = createFileRoute("/recetas/$id")({
   head: ({ params }) => {
@@ -30,9 +30,11 @@ export const Route = createFileRoute("/recetas/$id")({
 
 function Detalle() {
   const { id } = Route.useParams();
-  const { perfil, favoritas, excluidas, alternarFavorita, alternarExcluida } = useApp();
+  const { favoritas, excluidas, alternarFavorita, alternarExcluida } = useApp();
 
   const [r, setR] = useState<Receta | null>(null);
+  const [compatibilidad, setCompatibilidad] =
+    useState<CompatibilidadReceta | null>(null);
   const [ingredientesCatalogo, setIngredientesCatalogo] = useState<Ingrediente[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,11 +48,18 @@ function Detalle() {
     setEsErrorRed(false);
 
     try {
-      const [datosReceta, datosIngredientes] = await Promise.all([
+      const [
+        datosReceta,
+        datosIngredientes,
+        datosCompatibilidad,
+      ] = await Promise.all([
         api.getReceta(id),
         api.getIngredientes().catch(() => []),
+        api.getCompatibilidadReceta(id),
       ]);
+
       setR(datosReceta);
+      setCompatibilidad(datosCompatibilidad);
       if (datosIngredientes && datosIngredientes.length) {
         setIngredientesCatalogo(datosIngredientes);
       }
@@ -230,40 +239,91 @@ function Detalle() {
               </p>
             )}
 
-            {!recetaApta(r, perfil) && (
+
+            {compatibilidad?.estado_compatibilidad === "INCOMPATIBLE" && (
+              <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                Esta receta no es compatible con tus restricciones
+                alimentarias.
+              </p>
+            )}
+
+            {compatibilidad?.estado_compatibilidad === "ADAPTABLE" && (
               <p className="mt-3 rounded-xl bg-warning-soft px-4 py-3 text-sm font-medium text-warning">
-                Esta receta no es apta para tu perfil (por ingredientes o nivel culinario).
+                Esta receta requiere sustituciones de ingredientes
+                para ser compatible con tu perfil alimentario.
+              </p>
+            )}
+
+            {compatibilidad?.estado_compatibilidad === "COMPATIBLE" && (
+              <p className="mt-3 rounded-xl bg-primary-soft px-4 py-3 text-sm font-medium text-primary">
+                Esta receta es compatible con tu perfil alimentario.
               </p>
             )}
 
             <Card className="mt-6">
-              <h2 className="mb-3 text-xl font-semibold">Ingredientes</h2>
+              <h2 className="mb-3 text-xl font-semibold">
+                Ingredientes
+              </h2>
+
               <ul className="divide-y">
                 {r.ingredientes.map((ri) => {
-                  const restringido = ingredienteProhibido(
-                    ri.ingrediente_id,
-                    perfil
-                  );
+                  // Buscar si FastAPI marcó este ingrediente
+                  // como restringido.
+                  const restriccion =
+                    compatibilidad?.ingredientes_restringidos.find(
+                      (ing) => ing.ingrediente_id === ri.ingrediente_id
+                    );
 
-                  const tieneAlternativa =
-                    restringido &&
-                    ri.sustituto_id != null &&
-                    !ingredienteProhibido(ri.sustituto_id, perfil);
+                  const restringido = restriccion !== undefined;
+
+                  const alternativas =
+                    restriccion?.alternativas_validas ?? [];
 
                   return (
                     <li key={ri.ingrediente_id} className="py-3 text-sm">
                       <div className="flex items-center justify-between gap-3">
-                        <span className={restringido ? "text-destructive font-medium" : ""}>
+                        <span
+                          className={
+                            restringido
+                              ? "text-destructive font-medium"
+                              : ""
+                          }
+                        >
                           {resolverNombre(ri.ingrediente_id)}
                         </span>
-                        <span className="text-muted-foreground">{ri.cantidad}</span>
+
+                        <span className="text-muted-foreground">
+                          {ri.cantidad}
+                        </span>
                       </div>
+
                       {restringido && (
-                        <p className="mt-1 text-xs text-warning">
-                          {tieneAlternativa
-                            ? "Ingrediente restringido. Tiene una alternativa disponible."
-                            : "Ingrediente restringido. No tiene una alternativa compatible."}
-                        </p>
+                        <div className="mt-2">
+                          {alternativas.length > 0 ? (
+                            <div className="rounded-lg bg-warning-soft p-3">
+                              <p className="text-xs font-medium text-warning">
+                                Ingrediente restringido.
+                                Alternativas disponibles:
+                              </p>
+
+                              <ul className="mt-2 space-y-1">
+                                {alternativas.map((alt) => (
+                                  <li
+                                    key={alt.id}
+                                    className="text-xs text-foreground"
+                                  >
+                                    {alt.nombre} — {alt.cantidad} {alt.unidad}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-destructive">
+                              Ingrediente restringido sin alternativa
+                              compatible.
+                            </p>
+                          )}
+                        </div>
                       )}
                     </li>
                   );

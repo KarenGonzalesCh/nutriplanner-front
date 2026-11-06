@@ -6,10 +6,14 @@ import { RecetaCard } from "@/components/np/RecetaCard";
 import { Button, Chip, PageHeader, comidaTexto, nivelTexto } from "@/components/np/ui";
 import { api, ApiError, getErrorMessage } from "@/services/api";
 import { useApp } from "@/lib/app-state";
-import { estadoReceta } from "@/lib/restricciones";
-import type { NivelDificultad, Receta, TipoComida } from "@/types";
+import type {
+  EstadoCompatibilidad,
+  NivelDificultad,
+  Receta,
+  TipoComida,
+} from "@/types";
 
-export type EstadoFiltro = "TODAS" | "COMPATIBLE" | "SUSTITUCION" | "NO_DISPONIBLE";
+export type EstadoFiltro = "TODAS" | EstadoCompatibilidad;
 
 export interface RecetasSearch {
   q?: string | undefined;
@@ -40,7 +44,7 @@ export const Route = createFileRoute("/recetas/")({
         : undefined;
     const estado =
       typeof rawEstado === "string" &&
-      ["COMPATIBLE", "SUSTITUCION", "NO_DISPONIBLE"].includes(rawEstado)
+      ["COMPATIBLE", "ADAPTABLE", "INCOMPATIBLE"].includes(rawEstado)
         ? (rawEstado as EstadoFiltro)
         : undefined;
     const soloFavoritas =
@@ -58,11 +62,14 @@ export const Route = createFileRoute("/recetas/")({
 });
 
 function Catalogo() {
-  const { perfil, favoritas, excluidas } = useApp();
+  const { favoritas, excluidas } = useApp();
   const search = Route.useSearch();
   const navigate = useNavigate();
 
   const [recetas, setRecetas] = useState<Receta[]>([]);
+  const [compatibilidades, setCompatibilidades] = useState<
+    Record<number, EstadoCompatibilidad | null>
+  >({});
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [esErrorRed, setEsErrorRed] = useState(false);
@@ -72,16 +79,55 @@ function Catalogo() {
     setCargando(true);
     setError(null);
     setEsErrorRed(false);
+    setCompatibilidades({});
 
     try {
+      // 1. Obtener las recetas desde FastAPI.
       const datos = await api.getRecetas();
+
+      // 2. Consultar la compatibilidad de cada receta.
+      const resultados = await Promise.all(
+        datos.map(async (receta) => {
+          try {
+            const resultado = await api.getCompatibilidadReceta(
+              receta.id
+            );
+
+            return {
+              id: receta.id,
+              estado: resultado.estado_compatibilidad,
+            };
+          } catch {
+            return {
+              id: receta.id,
+              estado: null,
+            };
+          }
+        })
+      );
+
+      // 3. Guardar los estados asociados a cada receta.
+      const estados: Record<
+        number,
+        EstadoCompatibilidad | null
+      > = {};
+
+      resultados.forEach((resultado) => {
+        estados[resultado.id] = resultado.estado;
+      });
+
+      setCompatibilidades(estados);
       setRecetas(datos);
+
     } catch (err) {
-      const esRed = err instanceof ApiError ? err.isNetworkError : false;
+      const esRed =
+        err instanceof ApiError ? err.isNetworkError : false;
+
       const mensaje = getErrorMessage(
         err,
-        "No se pudieron cargar las recetas del servidor. Comprobá tu conexión."
+        "No se pudieron cargar las recetas del servidor."
       );
+
       setEsErrorRed(esRed);
       setError(mensaje);
     } finally {
@@ -167,11 +213,11 @@ function Catalogo() {
         (!qLower || r.nombre.toLowerCase().includes(qLower)) &&
         (!tipo || r.tipos_comida.includes(tipo)) &&
         (!nivel || r.dificultad === nivel) &&
-        (estado === "TODAS" || estadoReceta(r, perfil) === estado) &&
+        (estado === "TODAS" || compatibilidades[r.id] === estado) &&
         (!soloFavoritas || favoritas.includes(r.id)) &&
         !excluidas.includes(r.id)
     );
-  }, [recetas, searchInput, tipo, nivel, estado, soloFavoritas, perfil, favoritas, excluidas]);
+  }, [recetas, searchInput, tipo, nivel, estado, soloFavoritas, compatibilidades, favoritas, excluidas]);
 
   return (
     <AppLayout>
@@ -293,6 +339,7 @@ function Catalogo() {
 
           <span className="mx-1 h-5 w-px bg-border" />
 
+
           {/* Estado de compatibilidad según restricciones */}
           <select
             value={estado}
@@ -304,8 +351,8 @@ function Catalogo() {
           >
             <option value="TODAS">Todos los estados</option>
             <option value="COMPATIBLE">Compatibles</option>
-            <option value="SUSTITUCION">Con sustitución</option>
-            <option value="NO_DISPONIBLE">No disponibles</option>
+            <option value="ADAPTABLE">Con sustitución</option>
+            <option value="INCOMPATIBLE">No disponibles</option>
           </select>
 
           {/* Filtro de recetas favoritas */}
@@ -357,7 +404,11 @@ function Catalogo() {
       ) : lista.length ? (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {lista.map((r) => (
-            <RecetaCard key={r.id} receta={r} />
+            <RecetaCard
+              key={r.id}
+              receta={r}
+              estado={compatibilidades[r.id] ?? null}
+            />
           ))}
         </div>
       ) : (

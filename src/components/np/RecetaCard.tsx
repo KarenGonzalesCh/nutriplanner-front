@@ -2,30 +2,42 @@ import { Link } from "@tanstack/react-router";
 import { Clock, Heart, Ban } from "lucide-react";
 import type { Receta } from "@/types";
 import { Badge, comidaTexto, nivelTexto } from "./ui";
-import { estadoReceta } from "@/lib/restricciones";
 import { useApp } from "@/lib/app-state";
+import type { EstadoCompatibilidad } from "@/types";
 
-export function RecetaCard({ receta }: { receta: Receta }) {
-  const { perfil, favoritas, excluidas, alternarFavorita, alternarExcluida } =
-    useApp();
-
-  const estado = estadoReceta(receta, perfil);
+export function RecetaCard({
+  receta,
+  estado,
+}: {
+  receta: Receta;
+  estado: EstadoCompatibilidad | null;
+}) {
+  const {
+    favoritas,
+    excluidas,
+    alternarFavorita,
+    alternarExcluida,
+  } = useApp();
   const excluida = excluidas.includes(receta.id);
   const esFavorita = favoritas.includes(receta.id);
 
   const badgeEstadoClase =
-    estado === "COMPATIBLE"
-      ? "bg-primary-soft text-primary"
-      : estado === "SUSTITUCION"
-        ? "bg-warning-soft text-warning"
-        : "bg-red-500 text-white";
+    estado === null
+      ? "bg-secondary text-muted-foreground"
+      : estado === "COMPATIBLE"
+        ? "bg-primary-soft text-primary"
+        : estado === "ADAPTABLE"
+          ? "bg-warning-soft text-warning"
+          : "bg-red-500 text-white";
 
   const badgeEstadoTexto =
-    estado === "COMPATIBLE"
-      ? "Compatible"
-      : estado === "SUSTITUCION"
-        ? "Requiere sustitución"
-        : "No disponible";
+    estado === null
+      ? "No se pudo verificar"
+      : estado === "COMPATIBLE"
+        ? "Compatible"
+        : estado === "ADAPTABLE"
+          ? "Requiere sustitución"
+          : "No disponible";
 
   return (
     <article
