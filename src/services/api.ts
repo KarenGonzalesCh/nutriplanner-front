@@ -464,6 +464,65 @@ export interface PropuestaMenuResponse {
   }[];
   estructura_completa: boolean;
 }
+
+
+export interface GuardarMenuBackendRequest {
+  nombre: string;
+  cantidad_dias: number;
+  comensales: number;
+  tamano_porcion: "NORMAL";
+
+  posiciones_seleccionadas: {
+    dia: number;
+    tipo_comida: TipoComida;
+  }[];
+
+  comidas: {
+    dia: number;
+    tipo_comida: TipoComida;
+    receta_id: number;
+    sustituciones: {
+      receta_ingrediente_id: number;
+      alternativa_id: number;
+    }[];
+    confirma_conflicto_flexible?: boolean;
+    confirma_receta_excluida?: boolean;
+  }[];
+}
+
+export interface MenuGuardadoResumen {
+  id: number;
+  nombre: string;
+  cantidad_dias: number;
+  comensales: number;
+  tamano_porcion: string;
+  fecha_creacion: string;
+}
+
+export interface MenuGuardadoDetalle extends MenuGuardadoResumen {
+  comidas: {
+    id: number;
+    dia: number;
+    tipo_comida: TipoComida;
+    receta_id: number;
+    instantanea: {
+      nombre_receta: string;
+      pasos: string;
+      ingredientes: {
+        nombre: string;
+        cantidad: string;
+        unidad: string;
+        sustitucion: {
+          alternativa_id: number;
+          ingrediente_original_id: number;
+          nombre_original: string;
+        } | null;
+      }[];
+    };
+  }[];
+}
+
+
 // COMPATIBILIDAD DE RECETAS
 export interface CompatibilidadRecetaResponse {
   receta_id: number;
@@ -676,6 +735,32 @@ export const api = {
     request<PropuestaMenuResponse>("/menus/generar", {
       method: "POST",
       body: JSON.stringify(datos),
+    }),
+
+
+  // MENÚS GUARDADOS EN FASTAPI
+
+  guardarMenuBackend: (
+    datos: GuardarMenuBackendRequest
+  ): Promise<MenuGuardadoDetalle> =>
+    request<MenuGuardadoDetalle>("/menus", {
+      method: "POST",
+      body: JSON.stringify(datos),
+    }),
+
+  listarMenusBackend: (): Promise<MenuGuardadoResumen[]> =>
+    request<MenuGuardadoResumen[]>("/menus"),
+
+  obtenerMenuBackend: (
+    menuId: number
+  ): Promise<MenuGuardadoDetalle> =>
+    request<MenuGuardadoDetalle>(`/menus/${menuId}`),
+
+  eliminarMenuBackend: (
+    menuId: number
+  ): Promise<void> =>
+    request<void>(`/menus/${menuId}`, {
+      method: "DELETE",
     }),
 
   // FAVORITAS Y EXCLUIDAS

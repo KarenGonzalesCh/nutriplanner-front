@@ -1,3 +1,4 @@
+
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -5,7 +6,15 @@ import { menusIniciales } from "@/data/mock";
 import { api, setToken, setOnUnauthorized, ApiError, getErrorMessage, USE_MOCK } from "@/services/api";
 import type { Cuenta, Menu, PerfilAlimentario } from "@/types";
 
+import {
+  convertirMenuBackend,
+  obtenerMenusDesdeBackend,
+} from "@/lib/menus-backend";
+
+import type { GuardarMenuBackendRequest } from "@/services/api";
+
 interface AppState {
+
   cuenta: Cuenta | null;
   perfil: PerfilAlimentario;
   menus: Menu[];
@@ -16,7 +25,8 @@ interface AppState {
   cerrarSesion: () => void;
   setPerfil: (p: PerfilAlimentario) => Promise<void>;
   guardarMenu: (m: Omit<Menu, "id" | "creado">) => void;
-  borrarMenu: (id: number) => void;
+  guardarMenuBackend: (datos: GuardarMenuBackendRequest) => Promise<void>;
+  borrarMenu: (id: number) => Promise<void>;
   alternarFavorita: (id: number) => Promise<void>;
   alternarExcluida: (id: number) => Promise<void>;
 }
@@ -45,7 +55,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [cuenta, setCuenta] = useState<Cuenta | null>(null);
   const [perfil, setPerfilState] = useState<PerfilAlimentario>(perfilVacio);
-  const [menus, setMenus] = useState<Menu[]>(menusIniciales);
+  const [menus, setMenus] = useState<Menu[]>(
+    USE_MOCK ? menusIniciales : []
+  );
   const [favoritas, setFavoritas] = useState<number[]>([]);
   const [excluidas, setExcluidas] = useState<number[]>([]);
   const [cargandoSesion, setCargandoSesion] = useState(true);
@@ -60,12 +72,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     version: number,
     puedeActualizar: () => boolean = () => true
   ): Promise<void> => {
-    const [resultadoPerfil, resultadoFavoritas, resultadoExcluidas] =
-      await Promise.allSettled([
-        api.getPerfil(),
-        api.getFavoritas(),
-        api.getExcluidas(),
-      ]);
+
+    const [
+      resultadoPerfil,
+      resultadoFavoritas,
+      resultadoExcluidas,
+      resultadoMenus,
+    ] = await Promise.allSettled([
+      api.getPerfil(),
+      api.getFavoritas(),
+      api.getExcluidas(),
+      obtenerMenusDesdeBackend(),
+    ]);
+
 
     if (version !== versionSesion.current || !puedeActualizar()) return;
 
@@ -85,6 +104,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setExcluidas(resultadoExcluidas.value);
     } else {
       console.error("No se pudieron recuperar exclusiones:", resultadoExcluidas.reason);
+    }
+
+    if (resultadoMenus.status === "fulfilled") {
+      setMenus(resultadoMenus.value);
+    } else {
+      console.error(
+        "No se pudieron recuperar los menús:",
+        resultadoMenus.reason
+      );
+      toast.error(
+        "No se pudieron recuperar tus menús guardados."
+      );
     }
 
     if (
@@ -166,23 +197,83 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPerfilState(perfilGuardado);
   };
 
-  // MENÚS: se mantienen como están para abordarlos en la siguiente etapa.
+  // GUARDADO LOCAL: solamente para modo mock.
   const guardarMenu = (m: Omit<Menu, "id" | "creado">) =>
-    setMenus(prev => {
-      const next = [
-        { ...m, id: Date.now(), creado: new Date().toISOString() },
-        ...prev,
+    setMenus((anteriores) => {
+      const nuevos = [
+        {
+          ...m,
+          id: Date.now(),
+          creado: new Date().toISOString(),
+        },
+        ...anteriores,
       ];
-      localStorage.setItem("nutriplanner-menus", JSON.stringify(next));
-      return next;
+
+      if (USE_MOCK) {
+        localStorage.setItem(
+          "nutriplanner-menus",
+          JSON.stringify(nuevos)
+        );
+      }
+
+      return nuevos;
     });
 
-  const borrarMenu = (id: number) =>
-    setMenus(prev => {
-      const next = prev.filter(m => m.id !== id);
-      localStorage.setItem("nutriplanner-menus", JSON.stringify(next));
-      return next;
-    });
+  // GUARDAR MENÚ EN FASTAPI.
+  const guardarMenuBackend = async (
+    datos: GuardarMenuBackendRequest
+  ): Promise<void> => {
+    if (!cuenta) {
+      throw new Error(
+        "Debés iniciar sesión para guardar un menú."
+      );
+    }
+
+    const version = versionSesion.current;
+
+    const menuGuardado = await api.guardarMenuBackend(datos);
+
+    if (version !== versionSesion.current) {
+      return;
+    }
+
+    setMenus((anteriores) => [
+      convertirMenuBackend(menuGuardado),
+      ...anteriores,
+    ]);
+  };
+
+  // ELIMINAR MENÚ EN FASTAPI.
+  const borrarMenu = async (id: number): Promise<void> => {
+    if (USE_MOCK) {
+      setMenus((anteriores) => {
+        const nuevos = anteriores.filter(
+          (menu) => menu.id !== id
+        );
+
+        localStorage.setItem(
+          "nutriplanner-menus",
+          JSON.stringify(nuevos)
+        );
+
+        return nuevos;
+      });
+
+      return;
+    }
+
+    const version = versionSesion.current;
+
+    await api.eliminarMenuBackend(id);
+
+    if (version !== versionSesion.current) {
+      return;
+    }
+
+    setMenus((anteriores) =>
+      anteriores.filter((menu) => menu.id !== id)
+    );
+  };
 
   // Conserva el funcionamiento local si explícitamente se habilita USE_MOCK.
   const alternarLocal = (
@@ -328,6 +419,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         cerrarSesion,
         setPerfil,
         guardarMenu,
+        guardarMenuBackend,
         borrarMenu,
         alternarFavorita: (id) => alternarPreferencia("favorita", id),
         alternarExcluida: (id) => alternarPreferencia("exclusion", id),

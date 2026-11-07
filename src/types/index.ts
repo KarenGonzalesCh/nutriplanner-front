@@ -59,13 +59,37 @@ export interface SustitucionSeleccionada {
   ingrediente_alternativo_id: number;
 }
 
+
+export interface InstantaneaComida {
+  nombre_receta: string;
+  pasos: string;
+  ingredientes: {
+    nombre: string;
+    cantidad: string;
+    unidad: string;
+    sustitucion: {
+      alternativa_id: number;
+      ingrediente_original_id: number;
+      nombre_original: string;
+    } | null;
+  }[];
+}
+
+
+
 export interface DiaMenu {
   dia: string;
   comidas: Partial<Record<TipoComida, number>>;
+
   sustituciones?: Partial<
     Record<TipoComida, SustitucionSeleccionada[]>
   >;
+
+  instantaneas?: Partial<
+    Record<TipoComida, InstantaneaComida>
+  >;
 }
+
 
 export interface Menu {
   id: number;
