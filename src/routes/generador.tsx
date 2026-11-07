@@ -21,13 +21,14 @@ import {
   comidaTexto,
   nivelTexto,
 } from "@/components/np/ui";
-import { api, getErrorMessage } from "@/services/api";
-import { useApp } from "@/lib/app-state";
 import {
-  recetaApta,
-  ingredienteProhibido,
-  nombreIngrediente,
-} from "@/lib/restricciones";
+  api,
+  getErrorMessage,
+  type CompatibilidadRecetaResponse,
+  type GuardarMenuBackendRequest,
+} from "@/services/api";
+import { useApp } from "@/lib/app-state";
+import { recetaApta } from "@/lib/restricciones";
 import { cn } from "@/lib/utils";
 import type {
   Menu,
@@ -42,7 +43,7 @@ const DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "
 const TIPOS = Object.keys(comidaTexto) as TipoComida[];
 
 function Generador() {
-  const { perfil, excluidas, guardarMenu } = useApp();
+  const { perfil, excluidas, guardarMenuBackend } = useApp();
   const navigate = useNavigate();
 
   const [cantDias, setCantDias] = useState(3);
@@ -64,8 +65,14 @@ function Generador() {
   const [recetas, setRecetas] = useState<Receta[]>([]);
   const [ingredientesCatalogo, setIngredientesCatalogo] =
     useState<Ingrediente[]>([]);
+
   const [generando, setGenerando] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [compatibilidades, setCompatibilidades] = useState<
+    Record<number, CompatibilidadRecetaResponse>
+  >({});
   const [alertasAPI, setAlertasAPI] = useState<
+
     Record<
       string,
       {
@@ -87,36 +94,35 @@ function Generador() {
         !excluidas.includes(r.id)
     );
 
-  // INGREDIENTES QUE NECESITAN SUSTITUCIÓN
+
+  // INGREDIENTES PENDIENTES SEGÚN FASTAPI
   const ingredientesPendientes = (
     dia: Menu["dias"][number],
     tipo: TipoComida
   ) => {
-    // Respetar la validación del backend para el menú original
-    const alerta = alertasAPI[`${dia.dia}:${tipo}`];
+    const recetaId = dia.comidas[tipo];
 
-    if (alerta && !cambiosLocalesSinValidar) {
-      return [];
-    }
+    if (recetaId == null) return [];
 
-    const receta = recetas.find((r) => r.id === dia.comidas[tipo]);
-    if (!receta) return [];
+    const compatibilidad = compatibilidades[recetaId];
+
+    if (!compatibilidad) return [];
 
     const confirmadas = dia.sustituciones?.[tipo] ?? [];
 
-    return receta.ingredientes.filter((ri) => {
-      if (!ingredienteProhibido(ri.ingrediente_id, perfil)) {
-        return false;
-      }
-
-      return !confirmadas.some(
-        (s) =>
-          s.ingrediente_original_id === ri.ingrediente_id &&
-          s.ingrediente_alternativo_id === ri.sustituto_id &&
-          ri.sustituto_id != null &&
-          !ingredienteProhibido(ri.sustituto_id, perfil)
-      );
-    });
+    return compatibilidad.ingredientes_restringidos.filter(
+      (ingrediente) =>
+        !confirmadas.some(
+          (seleccion) =>
+            seleccion.ingrediente_original_id ===
+              ingrediente.ingrediente_id &&
+            ingrediente.alternativas_validas.some(
+              (alternativa) =>
+                alternativa.ingrediente_id ===
+                seleccion.ingrediente_alternativo_id
+            )
+        )
+    );
   };
 
   // GENERAR MENÚ CON FASTAPI
@@ -164,6 +170,26 @@ function Generador() {
       );
 
       setRecetas([...catalogo, ...recetasAdicionales]);
+
+
+      const resultadosCompatibilidad = await Promise.all(
+        idsRecetas.map(async (id) => ({
+          id,
+          detalle: await api.getCompatibilidadReceta(id),
+        }))
+      );
+
+      const mapaCompatibilidades: Record<
+        number,
+        CompatibilidadRecetaResponse
+      > = {};
+
+      resultadosCompatibilidad.forEach(({ id, detalle }) => {
+        mapaCompatibilidades[id] = detalle;
+      });
+
+      setCompatibilidades(mapaCompatibilidades);
+
 
       // 3. Adaptar la respuesta al formato del frontend
       const primerDia = propuesta.comidas.length > 0
@@ -273,7 +299,8 @@ function Generador() {
     );
   };
 
-  // CONFIRMAR SUSTITUCIÓN EXPLÍCITA
+
+  // CONFIRMAR SUSTITUCIÓN PARA UNA COMIDA ESPECÍFICA
   const confirmarSustitucion = (
     dia: string,
     tipo: TipoComida,
@@ -287,32 +314,30 @@ function Generador() {
       (r) => r.id === diaActual?.comidas[tipo]
     );
 
-    const ingrediente = receta?.ingredientes.find(
+    const ingredienteExiste = receta?.ingredientes.some(
       (ri) => ri.ingrediente_id === originalId
     );
 
-    // Validar la alternativa antes de registrarla
     if (
-      !ingrediente ||
-      ingrediente.sustituto_id !== alternativoId ||
-      !ingredienteProhibido(originalId, perfil) ||
-      ingredienteProhibido(alternativoId, perfil)
+      !ingredienteExiste ||
+      originalId === alternativoId
     ) {
+      setAviso("No se pudo confirmar esta sustitución.");
       return;
     }
 
-    setMenu((prev) =>
-      prev?.map((d) => {
+    setMenu((anteriores) =>
+      anteriores?.map((d) => {
         if (d.dia !== dia) return d;
 
-        const anteriores = d.sustituciones?.[tipo] ?? [];
+        const seleccionadas = d.sustituciones?.[tipo] ?? [];
 
         return {
           ...d,
           sustituciones: {
             ...d.sustituciones,
             [tipo]: [
-              ...anteriores.filter(
+              ...seleccionadas.filter(
                 (s) => s.ingrediente_original_id !== originalId
               ),
               {
@@ -325,12 +350,12 @@ function Generador() {
       }) ?? null
     );
 
-    // La confirmación es local y todavía no valida la alternativa en FastAPI.
-    setCambiosLocalesSinValidar(true);
     setAviso(
-      "La sustitución se marcó localmente. Falta validarla con el backend antes de guardar."
+      "Sustitución seleccionada. FastAPI verificará " +
+      "su validez cuando guardes el menú."
     );
   };
+
 
   // CONTAR SUSTITUCIONES PENDIENTES
   const pendientes = menu
@@ -356,25 +381,148 @@ function Generador() {
       )
     : false;
 
-  // GUARDAR SOLAMENTE SI ESTÁ COMPLETO
-  const guardar = () => {
+
+  // GUARDAR MENÚ Y SUS SUSTITUCIONES EN FASTAPI
+  const guardar = async () => {
+    if (!menu || faltanRecetas || guardando) {
+      return;
+    }
+
+    const hayConflictoFlexible = Object.values(alertasAPI).some(
+      (alerta) => alerta.conflictoFlexible
+    );
+
     if (
-      !menu ||
-      pendientes > 0 ||
-      faltanRecetas ||
-      haySustitucionesAPI ||
-      cambiosLocalesSinValidar
+      hayConflictoFlexible &&
+      !window.confirm(
+        "El menú contiene conflictos alimentarios flexibles. " +
+        "¿Confirmás que querés guardar estas recetas?"
+      )
     ) {
       return;
     }
 
-    guardarMenu({
-      nombre: nombre.trim() || "Menú sin nombre",
-      dias: menu,
-    });
+    setGuardando(true);
+    setAviso("");
 
-    navigate({ to: "/menus" });
+    try {
+      const comidasConfirmadas = await Promise.all(
+        menu.flatMap((dia, indice) =>
+          comidas.map(async (tipo) => {
+            const recetaId = dia.comidas[tipo];
+
+            if (recetaId == null) {
+              throw new Error(
+                `Falta una receta para ${dia.dia}, ${comidaTexto[tipo]}.`
+              );
+            }
+
+            // Consultar los identificadores reales del backend.
+            const compatibilidad =
+              await api.getCompatibilidadReceta(recetaId);
+
+            if (
+              compatibilidad.estado_compatibilidad ===
+              "INCOMPATIBLE"
+            ) {
+              throw new Error(
+                `La receta de ${dia.dia}, ${comidaTexto[tipo]}, ` +
+                "no es compatible con tu perfil."
+              );
+            }
+
+            const seleccionadas =
+              dia.sustituciones?.[tipo] ?? [];
+
+            const sustituciones = seleccionadas.map((seleccion) => {
+              const posicion =
+                compatibilidad.ingredientes_restringidos.find(
+                  (ingrediente) =>
+                    ingrediente.ingrediente_id ===
+                    seleccion.ingrediente_original_id
+                );
+
+              const alternativa =
+                posicion?.alternativas_validas.find(
+                  (opcion) =>
+                    opcion.ingrediente_id ===
+                    seleccion.ingrediente_alternativo_id
+                );
+
+              if (!posicion || !alternativa) {
+                throw new Error(
+                  `La sustitución elegida para ${dia.dia}, ` +
+                  `${comidaTexto[tipo]}, ya no es válida.`
+                );
+              }
+
+              return {
+                receta_ingrediente_id:
+                  posicion.receta_ingrediente_id,
+                alternativa_id: alternativa.id,
+              };
+            });
+
+            // No permitir ingredientes restringidos sin reemplazo.
+            const pendiente =
+              compatibilidad.ingredientes_restringidos.find(
+                (ingrediente) =>
+                  !sustituciones.some(
+                    (s) =>
+                      s.receta_ingrediente_id ===
+                      ingrediente.receta_ingrediente_id
+                  )
+              );
+
+            if (pendiente) {
+              throw new Error(
+                `Falta confirmar una sustitución de ` +
+                `${pendiente.nombre} para ${dia.dia}, ` +
+                `${comidaTexto[tipo]}.`
+              );
+            }
+
+            return {
+              dia: indice + 1,
+              tipo_comida: tipo,
+              receta_id: recetaId,
+              sustituciones,
+              confirma_conflicto_flexible:
+                alertasAPI[`${dia.dia}:${tipo}`]
+                  ?.conflictoFlexible ?? false,
+              confirma_receta_excluida: false,
+            };
+          })
+        )
+      );
+
+      const datos: GuardarMenuBackendRequest = {
+        nombre: nombre.trim() || "Menú sin nombre",
+        cantidad_dias: cantDias,
+        comensales: 1,
+        tamano_porcion: "NORMAL",
+
+        posiciones_seleccionadas: menu.flatMap(
+          (_, indice) =>
+            comidas.map((tipo) => ({
+              dia: indice + 1,
+              tipo_comida: tipo,
+            }))
+        ),
+
+        comidas: comidasConfirmadas,
+      };
+
+      await guardarMenuBackend(datos);
+
+      navigate({ to: "/menus" });
+    } catch (error) {
+      setAviso(getErrorMessage(error));
+    } finally {
+      setGuardando(false);
+    }
   };
+
 
   return (
     <AppLayout>
@@ -610,82 +758,43 @@ function Generador() {
                                       </p>
                                     )}
 
-                                    {alertaAPI?.requiereSustituciones ? (
+
+                                    {pendientesComida.length > 0 ? (
                                       <div className="space-y-2 rounded-xl border border-warning/30 bg-warning/5 p-2.5">
-                                        <div className="flex items-center gap-1.5 text-xs font-semibold text-warning">
-                                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                          <span>Sustitución pendiente</span>
-                                        </div>
+                                        <p className="text-xs font-semibold text-warning">
+                                          <AlertTriangle className="mr-1 inline h-3.5 w-3.5" />
+                                          {pendientesComida.length} sustitución(es) pendiente(s)
+                                        </p>
 
                                         <p className="text-xs text-muted-foreground">
-                                          FastAPI indicó que esta comida requiere
-                                          sustituciones. Las alternativas todavía
-                                          deben validarse con el backend.
+                                          Revisá los ingredientes y confirmá
+                                          las alternativas disponibles.
                                         </p>
-                                      </div>
-                                    ) : pendientesComida.length > 0 ? (
-                                      <div className="space-y-2 rounded-xl border border-warning/30 bg-warning/5 p-2.5">
-                                        <div className="flex items-center gap-1.5 text-xs font-semibold text-warning">
-                                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                          <span>Sustitución pendiente</span>
-                                        </div>
 
-                                        {pendientesComida.map((ri) => (
-                                          <div
-                                            key={ri.ingrediente_id}
-                                            className="rounded-lg border border-border/60 bg-card p-2 text-xs"
-                                          >
-                                            <p className="font-medium text-foreground">
-                                              {nombreIngrediente(ri.ingrediente_id)}
-                                            </p>
-
-                                            {ri.sustituto_id != null &&
-                                            !ingredienteProhibido(
-                                              ri.sustituto_id,
-                                              perfil
-                                            ) ? (
-                                              <>
-                                                <p className="mt-1 text-muted-foreground">
-                                                  Alternativa:{" "}
-                                                  <span className="font-medium text-foreground">
-                                                    {nombreIngrediente(
-                                                      ri.sustituto_id
-                                                    )}
-                                                  </span>
-                                                </p>
-
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    confirmarSustitucion(
-                                                      dia.dia,
-                                                      tipo,
-                                                      ri.ingrediente_id,
-                                                      ri.sustituto_id!
-                                                    )
-                                                  }
-                                                  className="mt-2 rounded-lg bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition hover:opacity-90"
-                                                >
-                                                  Confirmar sustitución
-                                                </button>
-                                              </>
-                                            ) : (
-                                              <p className="mt-1 text-destructive">
-                                                No hay alternativa compatible.
-                                              </p>
-                                            )}
-                                          </div>
-                                        ))}
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setPreviewReceta({
+                                              receta,
+                                              dia: dia.dia,
+                                              tipo,
+                                            })
+                                          }
+                                          className="rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground"
+                                        >
+                                          Elegir sustituciones
+                                        </button>
                                       </div>
                                     ) : (
                                       <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-                                        <CheckCircle className="h-3.5 w-3.5 shrink-0" />
+                                        <CheckCircle className="h-3.5 w-3.5" />
                                         <span>Sin sustituciones pendientes</span>
                                       </div>
                                     )}
                                   </div>
 
                                   <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border/50 pt-3">
+
                                     <button
                                       type="button"
                                       onClick={() =>
@@ -749,7 +858,8 @@ function Generador() {
                   <p className="flex items-center gap-2 text-sm text-warning">
                     <AlertTriangle className="h-4 w-4 shrink-0" />
                     Hay sustituciones o reemplazos sin validar en FastAPI.
-                    No podés guardar esta propuesta todavía.
+                    FastAPI validará las sustituciones y los
+                    reemplazos cuando presiones Guardar menú.
                   </p>
                 )}
 
@@ -772,19 +882,17 @@ function Generador() {
                     />
                   </div>
 
+
+
                   <Button
                     onClick={guardar}
-                    disabled={
-                      pendientes > 0 ||
-                      faltanRecetas ||
-                      haySustitucionesAPI ||
-                      cambiosLocalesSinValidar
-                    }
+                    disabled={faltanRecetas || guardando}
                     className="w-full shadow-sm sm:w-auto"
                   >
                     <Save className="h-4 w-4" />
-                    Guardar menú
+                    {guardando ? "Guardando..." : "Guardar menú"}
                   </Button>
+
                 </div>
               </Card>
             </>

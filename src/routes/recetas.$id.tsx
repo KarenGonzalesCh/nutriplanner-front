@@ -55,7 +55,7 @@ function Detalle() {
       ] = await Promise.all([
         api.getReceta(id),
         api.getIngredientes().catch(() => []),
-        api.getCompatibilidadReceta(id),
+        api.getCompatibilidadReceta(Number(id)),
       ]);
 
       setR(datosReceta);
