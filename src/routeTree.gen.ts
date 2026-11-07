@@ -14,6 +14,7 @@ import { Route as GeneradorRouteImport } from './routes/generador'
 import { Route as MenusRouteImport } from './routes/menus'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as PerfilRouteImport } from './routes/perfil'
+import { Route as VerificarCorreoRouteImport } from './routes/verificar-correo'
 import { Route as RecetasIndexRouteImport } from './routes/recetas.index'
 import { Route as RecetasIdRouteImport } from './routes/recetas.$id'
 
@@ -42,6 +43,11 @@ const PerfilRoute = PerfilRouteImport.update({
   path: '/perfil',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VerificarCorreoRoute = VerificarCorreoRouteImport.update({
+  id: '/verificar-correo',
+  path: '/verificar-correo',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RecetasIndexRoute = RecetasIndexRouteImport.update({
   id: '/recetas/',
   path: '/recetas/',
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/menus': typeof MenusRoute
   '/onboarding': typeof OnboardingRoute
   '/perfil': typeof PerfilRoute
+  '/verificar-correo': typeof VerificarCorreoRoute
   '/recetas/$id': typeof RecetasIdRoute
   '/recetas/': typeof RecetasIndexRoute
 }
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/menus': typeof MenusRoute
   '/onboarding': typeof OnboardingRoute
   '/perfil': typeof PerfilRoute
+  '/verificar-correo': typeof VerificarCorreoRoute
   '/recetas/$id': typeof RecetasIdRoute
   '/recetas': typeof RecetasIndexRoute
 }
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/menus': typeof MenusRoute
   '/onboarding': typeof OnboardingRoute
   '/perfil': typeof PerfilRoute
+  '/verificar-correo': typeof VerificarCorreoRoute
   '/recetas/$id': typeof RecetasIdRoute
   '/recetas/': typeof RecetasIndexRoute
 }
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/menus'
     | '/onboarding'
     | '/perfil'
+    | '/verificar-correo'
     | '/recetas/$id'
     | '/recetas/'
   fileRoutesByTo: FileRoutesByTo
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/menus'
     | '/onboarding'
     | '/perfil'
+    | '/verificar-correo'
     | '/recetas/$id'
     | '/recetas'
   id:
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/menus'
     | '/onboarding'
     | '/perfil'
+    | '/verificar-correo'
     | '/recetas/$id'
     | '/recetas/'
   fileRoutesById: FileRoutesById
@@ -117,6 +129,7 @@ export interface RootRouteChildren {
   MenusRoute: typeof MenusRoute
   OnboardingRoute: typeof OnboardingRoute
   PerfilRoute: typeof PerfilRoute
+  VerificarCorreoRoute: typeof VerificarCorreoRoute
   RecetasIdRoute: typeof RecetasIdRoute
   RecetasIndexRoute: typeof RecetasIndexRoute
 }
@@ -158,6 +171,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PerfilRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/verificar-correo': {
+      id: '/verificar-correo'
+      path: '/verificar-correo'
+      fullPath: '/verificar-correo'
+      preLoaderRoute: typeof VerificarCorreoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/recetas/': {
       id: '/recetas/'
       path: '/recetas'
@@ -181,6 +201,7 @@ const rootRouteChildren: RootRouteChildren = {
   MenusRoute: MenusRoute,
   OnboardingRoute: OnboardingRoute,
   PerfilRoute: PerfilRoute,
+  VerificarCorreoRoute: VerificarCorreoRoute,
   RecetasIdRoute: RecetasIdRoute,
   RecetasIndexRoute: RecetasIndexRoute,
 }
