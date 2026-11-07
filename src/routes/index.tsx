@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
-import { Leaf, AlertCircle, WifiOff } from "lucide-react";
+import { Leaf, AlertCircle, WifiOff, MailCheck } from "lucide-react";
 import { toast } from "sonner";
 import hero from "@/assets/receta-quinoa.jpg";
 import { Button, Input } from "@/components/np/ui";
@@ -31,6 +31,8 @@ function Acceso() {
   const [correo, setCorreo] = useState("");
   const [password, setPassword] = useState("");
   const [cargando, setCargando] = useState(false);
+  const [correoPendiente, setCorreoPendiente] = useState<string | null>(null);
+  const [reenviando, setReenviando] = useState(false);  
   const [error, setError] = useState<ErrorEstado | null>(null);
   const { iniciarSesion, cuenta, cargandoSesion } = useApp();
   const navigate = useNavigate();
@@ -56,6 +58,7 @@ function Acceso() {
     setError(null);
   };
 
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
 
@@ -65,58 +68,232 @@ function Acceso() {
     setError(null);
 
     try {
-      const res =
-        modo === "login"
-          ? await api.login(correo.trim(), password)
-          : await api.registro(nombre.trim(), correo.trim(), password);
+      if (modo === "login") {
+        // INICIO DE SESIÓN
+        const res = await api.login(
+          correo.trim(),
+          password
+        );
 
-      await iniciarSesion(res.cuenta, res.token);
+        await iniciarSesion(res.cuenta, res.token);
 
-      toast.success(
-        modo === "login" ? "¡Sesión iniciada con éxito!" : "¡Cuenta creada con éxito!",
-        { id: "auth-toast" }
-      );
+        toast.success("¡Sesión iniciada con éxito!", {
+          id: "auth-toast",
+        });
 
-      await navigate({
-        to: modo === "registro" ? "/onboarding" : "/recetas",
-      });
+        await navigate({
+          to: "/recetas",
+        });
+
+      } else {
+        // REGISTRO DE UNA CUENTA NUEVA
+        const res = await api.registro(
+          nombre.trim(),
+          correo.trim(),
+          password
+        );
+
+        if (res.requiereVerificacion) {
+          // La cuenta requiere confirmar el correo.
+          // No iniciamos sesión.
+          setCorreoPendiente(res.cuenta.correo);
+          setPassword("");
+
+          toast.success(
+            "Cuenta creada. Revisá tu correo electrónico.",
+            { id: "auth-toast" }
+          );
+
+          return;
+        }
+
+        // La verificación no está habilitada.
+        // Conservamos el inicio de sesión automático.
+        await iniciarSesion(res.cuenta, res.token);
+
+        toast.success("¡Cuenta creada con éxito!", {
+          id: "auth-toast",
+        });
+
+        await navigate({
+          to: "/onboarding",
+        });
+      }
+
     } catch (err) {
+      // MANEJO DE ERRORES
       if (err instanceof ApiError) {
-        let titulo = modo === "login" ? "No se pudo iniciar sesión" : "No se pudo crear la cuenta";
+        let titulo =
+          modo === "login"
+            ? "No se pudo iniciar sesión"
+            : "No se pudo crear la cuenta";
+
         if (err.isNetworkError) {
           titulo = "Servidor no disponible";
+
+        } else if (
+          modo === "login" &&
+          err.status === 403 &&
+          err.message.toLowerCase().includes("verific")
+        ) {
+          // La cuenta existe, pero el correo no está verificado.
+          setCorreoPendiente(correo.trim());
+          titulo = "Correo pendiente de verificación";
+
         } else if (err.status === 401 || err.status === 400) {
-          titulo = modo === "login" ? "Credenciales incorrectas" : "Error en el registro";
+          titulo =
+            modo === "login"
+              ? "Credenciales incorrectas"
+              : "Error en el registro";
+
         } else if (err.isValidationError) {
           titulo = "Datos inválidos o incompletos";
+
         } else if (err.isConflict) {
           titulo = "Cuenta existente";
+
         } else if (err.isServerError) {
           titulo = "Error en el servidor";
         }
 
-        setError({
-          titulo,
-          mensaje: err.message,
-          esRed: err.isNetworkError,
-        });
-        toast.error(err.message, { id: "auth-toast" });
+        if (titulo === "Correo pendiente de verificación") {
+          setError(null);
+        } else {
+          setError({
+            titulo,
+            mensaje: err.message,
+            esRed: err.isNetworkError,
+          });
+
+          toast.error(err.message, {
+            id: "auth-toast",
+          });
+        }
+
       } else {
+        // Error no identificado como respuesta de la API.
         const mensaje = getErrorMessage(
           err,
           "No se pudo completar la operación. Por favor, intentá nuevamente."
         );
+
         setError({
           titulo: "Ocurrió un error inesperado",
           mensaje,
           esRed: false,
         });
-        toast.error(mensaje, { id: "auth-toast" });
+
+        toast.error(mensaje, {
+          id: "auth-toast",
+        });
       }
+
     } finally {
+      // Se ejecuta tanto si la operación funciona
+      // como si ocurre un error.
       setCargando(false);
     }
   };
+
+  const reenviarCorreo = async () => {
+    if (!correoPendiente || reenviando) return;
+
+    setReenviando(true);
+    setError(null);
+
+    try {
+      const respuesta = await api.reenviarVerificacion(
+        correoPendiente
+      );
+
+      toast.success(respuesta.mensaje, {
+        id: "reenviar-toast",
+      });
+
+    } catch (err) {
+      const mensaje = getErrorMessage(
+        err,
+        "No se pudo reenviar el correo de verificación."
+      );
+
+      setError({
+        titulo: "No se pudo reenviar el correo",
+        mensaje,
+        esRed: err instanceof ApiError && err.isNetworkError,
+      });
+
+      toast.error(mensaje, {
+        id: "reenviar-toast",
+      });
+
+    } finally {
+      setReenviando(false);
+    }
+  };
+
+  if (correoPendiente) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-hero px-6 py-12">
+        <div className="w-full max-w-md rounded-3xl border bg-card p-8 text-center shadow-sm">
+
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-secondary">
+            <MailCheck className="h-8 w-8 text-primary" />
+          </div>
+
+          <h1 className="text-2xl font-semibold">
+            ¡Revisá tu correo electrónico!
+          </h1>
+
+          <p className="mt-4 text-sm text-muted-foreground">
+            Tu cuenta de NutriPlanner está pendiente de verificación.
+            Para activarla, abrí el enlace enviado a:
+          </p>
+
+          <p className="mt-3 break-all font-semibold">
+            {correoPendiente}
+          </p>
+
+          <p className="mt-4 text-sm text-muted-foreground">
+            No podrás iniciar sesión hasta confirmar tu correo.
+          </p>
+
+          {error && (
+            <p
+              role="alert"
+              className="mt-4 text-sm text-destructive"
+            >
+              {error.mensaje}
+            </p>
+          )}
+
+          <div className="mt-8 space-y-3">
+            <Button
+              type="button"
+              className="w-full"
+              onClick={reenviarCorreo}
+              disabled={reenviando}
+            >
+              {reenviando
+                ? "Enviando..."
+                : "Reenviar correo de verificación"}
+            </Button>
+
+            <button
+              type="button"
+              className="w-full py-2 text-sm font-medium text-primary hover:underline"
+              onClick={() => {
+                setCorreoPendiente(null);
+                setModo("login");
+                setError(null);
+              }}
+            >
+              Volver a iniciar sesión
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid min-h-screen lg:grid-cols-2">

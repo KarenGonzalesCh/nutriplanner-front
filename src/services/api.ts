@@ -607,24 +607,38 @@ export const api = {
     }
   },
 
+
   registro: async (
     nombre_usuario: string,
     correo: string,
     password: string
-  ): Promise<{ token: string; cuenta: Cuenta }> => {
+  ): Promise<
+    | {
+        requiereVerificacion: true;
+        cuenta: Cuenta;
+      }
+    | {
+        requiereVerificacion: false;
+        cuenta: Cuenta;
+        token: string;
+      }
+  > => {
     if (USE_MOCK) {
-      return delay({
+      return {
+        requiereVerificacion: false,
         token: "mock-token",
         cuenta: {
           id: 1,
           nombre_usuario,
           correo,
           rol: "USUARIO",
+          correo_verificado: true,
         },
-      });
+      };
     }
 
-    await request<Cuenta>("/cuentas", {
+    // Registrar la cuenta en FastAPI.
+    const cuenta = await request<Cuenta>("/cuentas", {
       method: "POST",
       body: JSON.stringify({
         nombre_usuario,
@@ -633,10 +647,59 @@ export const api = {
       }),
     });
 
-    // Mantener la experiencia actual:
-    // después del registro se inicia sesión.
-    return api.login(correo, password);
+    // Si el backend exige verificar el correo,
+    // NO iniciar sesión automáticamente.
+    if (cuenta.correo_verificado === false) {
+      return {
+        requiereVerificacion: true,
+        cuenta,
+      };
+    }
+
+    // Compatibilidad con el backend actual:
+    // si la verificación está desactivada,
+    // se mantiene el inicio de sesión automático.
+    const sesion = await api.login(correo, password);
+
+    return {
+      requiereVerificacion: false,
+      cuenta: sesion.cuenta,
+      token: sesion.token,
+    };
   },
+
+
+
+  // Confirmar el correo mediante el token del enlace.
+  verificarCorreo: async (
+    tokenVerificacion: string
+  ): Promise<{ mensaje: string }> => {
+    return request<{ mensaje: string }>(
+      "/auth/verificar-correo",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          token: tokenVerificacion,
+        }),
+      }
+    );
+  },
+
+  // Solicitar un nuevo enlace de confirmación.
+  reenviarVerificacion: async (
+    correo: string
+  ): Promise<{ mensaje: string }> => {
+    return request<{ mensaje: string }>(
+      "/auth/reenviar-verificacion",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          correo,
+        }),
+      }
+    );
+  },
+  
 
   getCuenta: () =>
     USE_MOCK

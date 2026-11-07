@@ -9,6 +9,7 @@ export interface Cuenta {
   nombre_usuario: string;
   correo: string;
   rol: Rol;
+  correo_verificado?: boolean;
 }
 
 export interface Alergia {
